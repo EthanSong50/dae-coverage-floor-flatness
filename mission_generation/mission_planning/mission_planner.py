@@ -486,11 +486,13 @@ class MissionPlanner:
                     forced_angle = geometry.get_long_axis_angle_rad(safe_node_mask)
                     swath_pairs = coverage.generate_raw_swaths(safe_node_mask, self.robot_params, decompose=True, split_angle_rad=forced_angle)
                 else:
+                    forced_angle = None
                     swath_pairs = coverage.generate_raw_swaths(safe_node_mask, self.robot_params)
 
                 if self.nodes[curr_node]['id'] in (1, 2):
                     node_id_dbg = self.nodes[curr_node]['id']
-                    print(f"[DEBUG] Node {node_id_dbg}: forced_angle_deg={math.degrees(forced_angle):.1f}, "
+                    angle_str = f"{math.degrees(forced_angle):.1f}" if forced_angle is not None else "N/A(wide)"
+                    print(f"[DEBUG] Node {node_id_dbg}: forced_angle_deg={angle_str}, "
                         f"num_swaths={len(swath_pairs)}, swath_pairs={swath_pairs}")
 
                     debug_img = cv2.cvtColor(safe_node_mask, cv2.COLOR_GRAY2BGR)
