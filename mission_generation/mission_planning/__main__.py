@@ -66,9 +66,11 @@ def main():
 
     planner_cfg = mission_cfg.copy()
     # MissionPlanner.__init__()이 받지 않는 키(plan() 단계 전용 파라미터, 경로 설정용 키)는
-    # 반드시 모두 pop하여 **planner_cfg로 생성자에 전달되지 않도록 분리한다.
-    # (sampling_step을 빼지 않으면 MissionPlanner.__init__()에서
-    #  "unexpected keyword argument 'sampling_step'" TypeError가 발생한다.)
+    # 반드시 모두 pop해서 **planner_cfg로 생성자에 전달되지 않도록 분리함 - 안 그러면
+    # "unexpected keyword argument" TypeError가 발생함. 현재 params.yaml의
+    # mission_planner 섹션에는 이 두 키만 존재하지만, 과거 버전의 sampling_step처럼
+    # 나중에 안 쓰는 키가 남아있을 수 있으니 새 kwarg-only 설정을 추가할 때 이 목록도
+    # 함께 갱신할 것.
     planner_vis_rel = planner_cfg.pop('visualization_dir', 'visualization/mission_generation/mission_planning')
     planner_vis_path = os.path.join(workspace_root, planner_vis_rel)
 
@@ -76,11 +78,8 @@ def main():
     metric_dir = os.path.join(workspace_root, metric_rel)
     cache_file = os.path.normpath(os.path.join(metric_dir, "final_path.json"))
 
-    sampling_step = planner_cfg.pop('sampling_step', 0.5)
-
     print(f"[*] Map Data Asset: {map_file}")
     print(f"[*] Output Waypoint Destination: {cache_file}")
-    print(f"[*] Sampling Step (from params.yaml): {sampling_step} m")
 
     # 4. MissionPlanner
     try:

@@ -4,8 +4,8 @@ import math
 
 def get_centroid(mask):
     """
-    이진 마스크의 모멘트를 계산하여 기하학적 중심점(Centroid)을 반환합니다.
-    Coverage 알고리즘이 실패했을 때 해당 노드의 대표 지점으로 활용됩니다.
+    이진 마스크의 모멘트를 계산해 기하학적 중심점(Centroid)을 반환함.
+    Coverage 알고리즘이 실패했을 때 해당 노드의 대표 지점으로 활용됨.
     """
     if mask is None or cv2.countNonZero(mask) == 0:
         return None
@@ -19,13 +19,13 @@ def get_centroid(mask):
 
 def euclidean_distance(p1, p2):
     """
-    두 점 사이의 유클리디안 거리를 계산합니다. $d = \sqrt{(x_2-x_1)^2 + (y_2-y_1)^2}$
+    두 점 사이의 유클리디안 거리를 계산함. $d = \sqrt{(x_2-x_1)^2 + (y_2-y_1)^2}$
     """
     return math.hypot(p2[0] - p1[0], p2[1] - p1[1])
 
 def get_distance_matrix(points):
     """
-    점들의 리스트를 받아 TSP 알고리즘에 필요한 거리 행렬(Distance Matrix)을 생성합니다.
+    점들의 리스트를 받아 TSP 알고리즘에 필요한 거리 행렬(Distance Matrix)을 생성함.
     """
     n = len(points)
     matrix = np.zeros((n, n))
@@ -37,8 +37,8 @@ def get_distance_matrix(points):
 
 def get_nearest_point(target_pt, points_list):
     """
-    기준점(target_pt)에서 가장 가까운 점을 리스트(points_list)에서 찾아 반환합니다.
-    Transit 경로의 시작점과 Coverage 경로의 끝점을 연결할 때 사용됩니다.
+    기준점(target_pt)에서 가장 가까운 점을 리스트(points_list)에서 찾아 반환함.
+    Transit 경로의 시작점과 Coverage 경로의 끝점을 연결할 때 사용됨.
     """
     if not points_list:
         return None
@@ -49,7 +49,7 @@ def get_nearest_point(target_pt, points_list):
 
 def pixel_to_meter(px_coord, origin, resolution, map_height):
     """
-    이미지 픽셀 좌표를 실제 지도 상의 미터(m) 좌표로 정확히 역변환합니다 (Y축 반전 보정).
+    이미지 픽셀 좌표를 실제 지도 상의 미터(m) 좌표로 정확히 역변환함(Y축 반전 보정).
     """
     mx = origin[0] + px_coord[0] * resolution
     # OpenCV Y축 인덱스를 ROS 2 물리 Y 좌표로 역산
@@ -58,7 +58,7 @@ def pixel_to_meter(px_coord, origin, resolution, map_height):
 
 def meter_to_pixel(m_coord, origin, resolution, map_height):
     """
-    실제 미터(m) 좌표를 이미지 픽셀 좌표로 정확히 변환합니다 (Y축 반전 반영).
+    실제 미터(m) 좌표를 이미지 픽셀 좌표로 정확히 변환함(Y축 반전 반영).
     """
     px = int((m_coord[0] - origin[0]) / resolution)
     # ROS 2 물리 Y 좌표를 OpenCV Y축 인덱스로 변환
@@ -78,12 +78,12 @@ def estimate_min_width_px(mask):
 
 def get_long_axis_angle_rad(mask):
     """
-    mask를 감싸는 minAreaRect의 긴 변 방향을 라디안으로 반환한다.
-    narrow/ultra_narrow 노드에서 F2C 스와스 방향을 이 각도로 강제 지정하는 데 쓴다.
+    mask를 감싸는 minAreaRect의 긴 변 방향을 라디안으로 반환함.
+    narrow/ultra_narrow 노드에서 F2C 스와스 방향을 이 각도로 강제 지정하는 데 씀.
 
-    주의: cv2.minAreaRect의 angle 규약이 OpenCV 버전마다 다르다(4.5 이전과
+    주의: cv2.minAreaRect의 angle 규약이 OpenCV 버전마다 다름(4.5 이전과
     이후가 다름). 적용 전에 방향을 아는 노드 하나로 실제 결과를 시각화해서
-    눈으로 확인할 것 - 90도 어긋나면 오히려 짧은 축 방향이 강제되어 역효과가 난다.
+    눈으로 확인할 것 - 90도 어긋나면 오히려 짧은 축 방향이 강제되어 역효과가 남.
     """
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
@@ -93,44 +93,14 @@ def get_long_axis_angle_rad(mask):
     if w < h:
         angle += 90.0
     return math.radians(angle)
-    
-def merge_short_runs(runs, min_len_px=15):
-    """
-    _split_by_assist_mask 등으로 나뉜 (flag, path) run 목록에서, 실제 길이(호 길이)가
-    min_len_px보다 짧은 run을 직전 run에 흡수시킨다. assist_mask 경계가 픽셀 단위로
-    삐뚤빼뚤해서 생기는 미세한 on/off 토글(예: 1~2점짜리 sub-segment)을 제거하기 위함.
-
-    Args:
-        runs (list): [(flag, [(x,y), ...]), ...] 형태의 리스트
-        min_len_px (float): 이 값보다 짧은 run은 직전 run에 흡수됨
-
-    Returns:
-        list: 병합된 (flag, path) 리스트
-    """
-    if not runs:
-        return runs
-
-    merged = [list(runs[0])]
-    for flag, run in runs[1:]:
-        run_len = sum(
-            math.hypot(run[k + 1][0] - run[k][0], run[k + 1][1] - run[k][1])
-            for k in range(len(run) - 1)
-        )
-        if run_len < min_len_px and merged:
-            prev_flag, prev_run = merged[-1]
-            merged[-1] = [prev_flag, prev_run + run[1:]]
-        else:
-            merged.append([flag, run])
-
-    return [(f, r) for f, r in merged]
 
 def order_swaths_by_entry(swath_pairs, entry_hint):
     """
     entry_hint에서 가장 가까운 스와스/끝점부터 출발해, 매번 남은 스와스 중
     현재 위치에서 가장 가까운 끝점을 갖는 스와스를 다음으로 고르는
-    nearest-neighbor 체이닝. exit_hint는 고려하지 않는다 - 진입 후 최대한
+    nearest-neighbor 체이닝. exit_hint는 고려하지 않음 - 진입 후 최대한
     빨리 커버리지를 시작하는 것이 목표이고, 노드 진출 방향은 신경 쓰지 않기로
-    했기 때문이다(왕복 방식으로 narrow/ultra_narrow의 blind zone을 커버하는
+    했기 때문임(왕복 방식으로 narrow/ultra_narrow의 blind zone을 커버하는
     전략과 일관됨).
     """
     n = len(swath_pairs)

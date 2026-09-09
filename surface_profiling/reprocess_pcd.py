@@ -5,7 +5,7 @@ surface_profiling/reprocess_pcd.py
 이미 수집되어 저장된 combined_*.pcd 파일 하나를 입력받아,
 [Stage 2/3] Floor Extraction 과 [Stage 3/3] Heatmap Generation을
 surface_profiler.py의 run()과 동일한 함수(extract_floor_by_height,
-generate_floor_heatmap)로 다시 실행한다.
+generate_floor_heatmap)로 다시 실행함.
 
 목적: z_min/z_max, grid_size, map_yaml_dir 같은 params.yaml 값을
 바꿔가며 히트맵 결과를 반복 확인할 때, 매번 로봇을 다시 주행시킬
@@ -20,13 +20,13 @@ generate_floor_heatmap)로 다시 실행한다.
     python3 reprocess_pcd.py combined_2026-07-10_23-54-47.pcd --no-map-overlay
 
 주의: 이 스크립트는 params.yaml을 surface_profiler.py와 완전히 동일한
-방식(ament_index_python 우선, 실패 시 상대경로 폴백)으로 읽는다.
+방식(ament_index_python 우선, 실패 시 상대경로 폴백)으로 읽음.
 즉 "params.yaml을 고쳤는데 반영이 안 되는 것 같다"는 의심이 들 때,
 이 스크립트로 재실행해서 나오는 값(아래 [*] Config values 출력)이
-곧 실제 파이프라인이 쓰는 값과 100% 동일하다 — 값이 여기서도 예전
+곧 실제 파이프라인이 쓰는 값과 100% 동일함 — 값이 여기서도 예전
 그대로라면 params.yaml 수정 자체가 반영 안 된 것이고(경로 오타,
 colcon build 누락 등), 여기서는 새 값인데 실제 주행 결과만 예전
-같다면 그건 다른 원인(캐시된 install 바이너리 실행 등)이다.
+같다면 그건 다른 원인(캐시된 install 바이너리 실행 등)임.
 """
 
 import os
@@ -35,7 +35,7 @@ import argparse
 
 
 def _add_utils_to_path():
-    """surface_profiler.py와 동일한 방식으로 utils 모듈을 임포트 가능하게 한다.
+    """surface_profiler.py와 동일한 방식으로 utils 모듈을 임포트 가능하게 함.
     이 스크립트가 소스 트리(src/.../surface_profiling/) 안에서 실행되는 경우와
     install 트리(install/.../surface_profiling/) 안에서 실행되는 경우 둘 다 대응."""
     this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -113,7 +113,7 @@ def main():
         map_yaml_path = resolve_map_yaml_path(workspace_root, override_cfg)
     else:
         # [핵심] surface_profiler.py의 _resolve_directories()와 완전히 동일한
-        # resolve_map_yaml_path()를 그대로 사용 -> 두 스크립트가 절대 어긋나지 않는다.
+        # resolve_map_yaml_path()를 그대로 사용 -> 두 스크립트가 절대 어긋나지 않음.
         map_yaml_path = resolve_map_yaml_path(workspace_root, profiling_cfg)
         if map_yaml_path is not None and not os.path.exists(map_yaml_path):
             print(f"[!] Warning: map_yaml_path가 설정되었으나 파일을 찾을 수 없습니다: {map_yaml_path}")
@@ -126,7 +126,7 @@ def main():
     print(f"    input pcd      = {pcd_path}")
 
     # 원본 파일명에서 타임스탬프/suffix를 그대로 살려, 재처리본임을 구분할 수 있는
-    # 별도 파일명으로 저장한다 (원본 raw pcd는 덮어쓰지 않음).
+    # 별도 파일명으로 저장함(원본 raw pcd는 덮어쓰지 않음).
     base = os.path.splitext(os.path.basename(pcd_path))[0]
     if base.startswith("combined_"):
         stem = base[len("combined_"):]

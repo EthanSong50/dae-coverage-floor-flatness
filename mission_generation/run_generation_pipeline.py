@@ -33,11 +33,11 @@ def run_generation_pipeline():
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
-    # 2. params.yaml 내부 'global'
+    # params.yaml 내부 'global'
     global_cfg = config.get('global', {})
     workspace_root = os.path.expanduser(global_cfg.get('workspace_root', '~/dae_floor_maps'))
 
-    # 3. 'environment_modeling'
+    # 'environment_modeling'
     env_cfg = config.get('environment_modeling', {})
     topology_dir = os.path.join(workspace_root, env_cfg.get('output_topology_dir', 'maps/topology'))
     grid_dir = os.path.join(workspace_root, env_cfg.get('output_grid_dir', 'maps/grid'))
@@ -45,11 +45,22 @@ def run_generation_pipeline():
     map_file = os.path.normpath(os.path.join(topology_dir, "final_topological_map.npz"))
     yaml_path = os.path.normpath(os.path.join(grid_dir, "map_from_dae.yaml"))
 
-    # 'mission_planner'의 결과인 웨이포인트 경로 지정
+    # 'mission_planner'
     mission_cfg = config.get('mission_planner', {})
-    sampling_step = mission_cfg.pop('sampling_step', 0.5)
     metric_dir = os.path.join(workspace_root, mission_cfg.pop('output_metric_dir', 'analytics/metrics'))
     cache_file = os.path.normpath(os.path.join(metric_dir, "final_path.json"))
+
+    # 'mission_execution' - boundary_repass_distance_m/enable_boundary_repass는
+    # 실행 단계 섹션에 있지만, 계획 단계에서도 동일 값이 필요해 명시적으로
+    # 꺼내옴(**mission_cfg 흡수에 기대지 않는 이유는 CLAUDE.md 참고). 이 값이
+    # 실행 시점(mission_executor.py)의 값과 다르면 계획된 transit 시작점과
+    # 실제 로봇이 repass 후 서 있을 위치가 어긋남 - 다만 이제는
+    # mission_planner.py가 저장하는 final_path_meta.json을 mission_executor.py가
+    # 시작 시 자동 대조하므로, 어긋나면 미션이 스스로 CRITICAL ERROR로
+    # 중단됨(사람이 기억할 필요 없음, 배경은 HISTORY.md §2 참고).
+    mission_exec_cfg = config.get('mission_execution', {})
+    boundary_repass_distance_m = mission_exec_cfg.get('boundary_repass_distance_m', 1.5)
+    enable_boundary_repass = mission_exec_cfg.get('enable_boundary_repass', True)
 
     # 2. Map Processing
     need_process = False
@@ -94,9 +105,9 @@ def run_generation_pipeline():
             planner_vis_path = os.path.join(workspace_root, planner_vis_rel)
             
             robot_width = env_cfg.get('robot_width', 0.28)
-            path_safety_margin = env_cfg.get('path_safety_margin', 0.25)
-            lidar_mount_height = env_cfg.get('lidar_mount_height', 0.338)
-            lidar_vertical_fov_deg = env_cfg.get('lidar_vertical_fov_deg', 15.0)
+            path_safety_margin = mission_cfg.pop('path_safety_margin', 0.20)
+            lidar_mount_height = mission_cfg.pop('lidar_mount_height', 0.338)
+            lidar_vertical_fov_deg = mission_cfg.pop('lidar_vertical_fov_deg', 15.0)
 
             
             planner = MissionPlanner(
@@ -106,6 +117,8 @@ def run_generation_pipeline():
                 path_safety_margin=path_safety_margin,
                 lidar_mount_height=lidar_mount_height,
                 lidar_vertical_fov_deg=lidar_vertical_fov_deg,
+                boundary_repass_distance_m=boundary_repass_distance_m,
+                enable_boundary_repass=enable_boundary_repass,
                 **mission_cfg
             )
             

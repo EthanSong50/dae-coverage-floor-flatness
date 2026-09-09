@@ -3,7 +3,7 @@ import numpy as np
 
 def find_path_with_penalty(start, goal, planning_mask, turn_weight=2, wall_weight=6.0):
     """
-    장애물을 우회하며 회전 동작에 페널티를 부여하는 개선된 A* 탐색 알고리즘입니다.
+    장애물을 우회하며 회전 동작에 페널티를 부여하는 개선된 A* 탐색 알고리즘임.
     
     Args:
         start (tuple): (x, y) 시작 좌표

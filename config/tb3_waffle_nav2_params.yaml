@@ -104,7 +104,7 @@ docking_server:
       pose: [30.0, 30.0, 0.0]
     enable_stamped_cmd_vel: false
 
-controller_server:  # TurtleBot3 Waffle의 실제 모터 스펙상 최대 선속도는 약 0.26 m/s, 최대 각속도는 약 1.82 rad/s 이다.
+controller_server:  # TurtleBot3 Waffle의 실제 모터 스펙상 최대 선속도는 약 0.26 m/s, 최대 각속도는 약 1.82 rad/s임.
   ros__parameters:
     controller_frequency: 10.0 # 초당 몇 번 속도를 재계산하는지
     min_x_velocity_threshold: 0.001
@@ -241,7 +241,7 @@ global_costmap:
         transform_tolerance: 0.1
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.5
+        inflation_radius: 0.25
         cost_scaling_factor: 14.5
       always_send_full_costmap: true
 

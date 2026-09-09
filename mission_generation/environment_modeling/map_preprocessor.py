@@ -31,8 +31,8 @@ class MapPreprocessor:
         h, w = binary.shape
 
         # 2. 외곽(집 바깥) 지우기 (Flood Fill)
-        # 이미지의 네 모서리(여백)에서 검은색(0)을 쏟아붓습니다.
-        # 벽(0)에 닿으면 멈추므로 집 안은 보호됩니다.
+        # 이미지의 네 모서리(여백)에서 검은색(0)을 쏟아부음.
+        # 벽(0)에 닿으면 멈추므로 집 안은 보호됨.
         flood_mask = np.zeros((h + 2, w + 2), np.uint8)
         
         # 네 귀퉁이에서 시도 (하나라도 집 바깥이면 작동)
@@ -45,7 +45,7 @@ class MapPreprocessor:
                 cv2.floodFill(temp_binary, flood_mask, pt, 127)
 
         # 3. 실내 영역만 추출
-        # 이제 회색(127)은 바깥, 흰색(255)은 실내 바닥입니다.
+        # 회색(127)은 바깥, 흰색(255)은 실내 바닥임.
         indoor_only = np.zeros_like(img)
         indoor_only[temp_binary == 255] = 255
 

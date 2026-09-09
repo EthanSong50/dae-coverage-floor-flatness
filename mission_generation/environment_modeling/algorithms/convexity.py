@@ -16,6 +16,7 @@ def decompose_to_convex(node, min_area_px, config):
         'nondriveable_mask',
         np.zeros_like(mask)
     )
+    node_id = node.get('id', 'unknown')
     
     BASE_SOLIDITY = config.get('base_solidity_threshold', 0.88)
     STRICT_SOLIDITY = config.get('strict_solidity_threshold', 0.75)
@@ -28,14 +29,14 @@ def decompose_to_convex(node, min_area_px, config):
     # 1. 외곽선 검출 및 실제 Solidity 계산
     cnt, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not cnt: 
-        return [node]
+        return [] # Contour가 없는 빈 마스크 폐기
     
     c = max(cnt, key=cv2.contourArea)
     area = cv2.contourArea(c)
     
-    # 너무 작으면 분할 중단
+    # 너무 작으면(min_area_px 미만인 경우) 최종 결과에서 제거. 분할 중단.
     if area < min_area_px: 
-        return [node]
+        return []
     
     hull = cv2.convexHull(c)
     hull_area = cv2.contourArea(hull)
@@ -143,6 +144,11 @@ def decompose_to_convex(node, min_area_px, config):
                     for j in range(1, num_labels):
                         sub_m = np.zeros_like(m)
                         sub_m[labels == j] = 255
+
+                        sub_area = cv2.countNonZero(sub_m)
+                        if sub_area < min_area_px:
+                            print(f"  -> [PRE-DISCARD] Child {node_id}_{i}_{j} (Area: {sub_area} px) is smaller than min_area_px. Skipping.")
+                            continue
                         
                         # 2. 유동적 Iteration 계산
                         # 노드 크기의 절반 정도는 팽창해야 벽에 닿을 수 있음
@@ -158,7 +164,7 @@ def decompose_to_convex(node, min_area_px, config):
                         sub_n = cv2.bitwise_and(n_all, expanded_sub_m)
                         
                         child_node = {
-                            'id': f"{node['id']}_{i}_{j}",
+                            'id': f"{node_id}_{i}_{j}",
                             'driveable_mask': sub_m,
                             'nondriveable_mask': sub_n,
                             'area_px': cv2.countNonZero(sub_m)
@@ -168,7 +174,7 @@ def decompose_to_convex(node, min_area_px, config):
             # DEBUG: non-driveable  최종 유실 확인
             # 시각화를 확인하니 이제 유실 없이 잘 나옴.
             # 출력된 합계가 늘어나긴함. 
-            # 중복되어서 합계가 커진 것 같다. 그래도 로봇 입장에서는 '어느 쪽 노드에서 보든 이 벽은 내 근처에 있다'고 인식하게 되므로 훨씬 안전함.
+            # 중복되어 합계가 커질 수 있으나, 로봇 입장에서는 '어느 쪽 노드에서 보든 이 벽은 내 근처에 있다'고 인식하게 되므로 훨씬 안전함.
             final_child_nd_count = sum(cv2.countNonZero(child['nondriveable_mask']) for child in res_nodes)
             if final_child_nd_count == 0:
                 print(f"[CRITICAL] All pink pixels lost in Node {node.get('id')}")

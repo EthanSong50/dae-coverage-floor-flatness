@@ -8,6 +8,6 @@ from .geometry import get_distance_matrix
 from .geometry import get_nearest_point
 from .geometry import pixel_to_meter
 from .geometry import meter_to_pixel
-from .geometry import estimate_min_width_px, merge_short_runs, order_swaths_by_entry
+from .geometry import estimate_min_width_px, order_swaths_by_entry
 
 from .sampler import interpolate_with_semantics

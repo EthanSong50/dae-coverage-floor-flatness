@@ -24,8 +24,7 @@ class SpaceSegmenter:
         self.max_door_radius = config.get('max_door_radius', 0.6) # 일반적인 방의 문 폭의 최대 너비의 절반: 1.2 / 2 = 0.6 (m)
         self.min_area_px = config.get('min_area_px', 100) # 분할된 조각이 너무 작아지는 것 방지.
         self.max_aspect_ratio = config.get('max_aspect_ratio', 5) # 공간의 최대 종횡비의 기준. 예를 들어 공간의 종횡비가 5 이상이라면, 지나치게 긴 공간으로 간주하여 분할함.
-        self.internal_pillar_threshold = config.get('internal_pillar_threshold', 1) # # 무시할 내부 소형 기둥의 최대 넓이(제곱미터)
-        
+
         self.convexity_config = config.get('convexity', {})
         
         # 픽셀 단위 변환
@@ -46,29 +45,28 @@ class SpaceSegmenter:
     def execute_segmentation(self):
         """
         맵 분할 파이프라인 구성:
-        Step 1: "로봇이 어디를 갈 수 있는가?"를 결정하는 단계. (물리적 한계 적용 + 소형 기둥 제거)
-        (참고로 이 단계가 맵 분할 파이프라인에 포함되는 것보다 맵 전처리 단계에 포함되는 것이 더 낫다고 생각할 수 있다. 하지만 맵 전처리는 정확히 지도 중심이고, 이 단계는 로봇 중심이다.)
+        Step 1: "로봇이 어디를 갈 수 있는가?"를 결정하는 단계(물리적 한계 적용).
         => .utils의 visualize_geometry_view으로 시각화
-        
-        Step 2-6: "공간을 어떻게 분할할 것인가?"를 결정하는 단계. (문 기반 분할 + 구멍 탐지 및 절단 + 볼록성 기반 분할 + 거실 등 급격한 확장 탐지)
+
+        Step 2-5: "공간을 어떻게 분할할 것인가?"를 결정하는 단계(문 기반 분할 + 구멍 탐지 및
+        절단 + 볼록성 기반 분할 + 너무 긴 복도 분할).
         => .utils의 visualize_node_view으로 시각화
-        
-        Step 1: 실내 공간을 주행 가능 영역과 주행이 불가능한 영역으로 나누는 것이 첫 번째 단계이다. (둘 다 최대한 측정 대상이다.)
-        Step 2: 그리고 1제곱미터 보다 작은 소형 기둥을 주행 가능영역으로 포함하였다. 소형 기둥을 일일이 회피하도록 비효율적으로 경로를 설정하는 대신, 실시간으로 회피하도록 할 예정이다.
-        Step 3: 문을 기준으로 공간을 분할하여, 노드를 생성한다. 이때 문이 로봇이 통과할 수 있는지 여부를 판단하여, 통과가 불가능한 문이 존재하는 방은 주행 불가능 영역으로 간주될 수 있음.
-        Step 4: hole(구멍) 탐지 및 분할. 이전 단계에서 생성된 노드들을 순회하며 구멍이 있다면 절단한다. 구멍 표면에서 가장 가까운 외벽을 찾아 절단선을 그은 후, Connected Components로 분할된 각각의 조각들을 새로운 노드로 등록하는 방식이다.
-        Step 5: 볼록성(Solidity) 기반 오목한 공간(L자 복도 등) 분할. 이전 단계에서 생성된 노드들을 순회하며, 볼록성이 낮은 노드에 대해, 절단선을 그어 분할한다. 이때 절단선은 구멍 탐지에서 사용한 방식과 유사하게, 볼록성이 낮은 영역의 표면에서 가장 가까운 외벽을 찾아 그은 후, Connected Components로 분할된 각각의 조각들을 새로운 노드로 등록하는 방식이다.
-        Step 6: 너무 긴 복도를 탐지하여, 일정 종횡비가 넘으면 분할함.
+
+        각 Step의 상세 설명은 environment_modeler.py의 build_environment_model()
+        참고(동일한 파이프라인 설명이 그쪽에도 있음).
         """
         print(f"\n{'-'*16} [Space Segmentation Start] {'-'*16}")
 
         # [Step 1] Driveable vs nondriveable 영역 분리
         # algorithms/limits.py 호출
         """
-        이전 단계인 맵 전처리 단계(Pre-processing)에서는 벽과 기둥 안의 공간을 제외시키기 위해, 단순히 가장 큰 이어지는 실내 바닥 영역을 추출했다.
-        이번 단계에서는 여기서 실제 로봇이 주행 가능한 영역과 그렇지 않은 영역으로 구분한다. (물론 둘 다 최대한 측정 대상이다.) 
-        또한 문지방이 로봇의 폭에 비해 너무 좁아 진입이 불가하다면, 그 방 전체가 주행 불가 영역으로 간주될 수 있음.
-        이때 이 방과 방 바깥 중에서 더 넓은 영역(복도, 거실 등)이 주행 가능 영역으로 선택됨.
+        이전 단계인 맵 전처리 단계(Pre-processing)에서는 벽과 기둥 안의 공간을 제외시키기 위해
+        단순히 가장 큰 이어지는 실내 바닥 영역을 추출함.
+        이번 단계에서는 여기서 실제 로봇이 주행 가능한 영역과 그렇지 않은 영역으로 구분함(둘 다
+        최대한 측정 대상임).
+        문지방이 로봇의 폭에 비해 너무 좁아 진입이 불가하면 그 방 전체가 주행 불가 영역으로
+        간주될 수 있음 - 이때 이 방과 방 바깥 중에서 더 넓은 영역(복도, 거실 등)이 주행 가능
+        영역으로 선택됨.
         """
         driveable_mask, nondriveable_mask, debug_color = enforce_physical_limits(
             self.mask, self.robot_px
@@ -78,10 +76,11 @@ class SpaceSegmenter:
         # [Step 2] 문(Door) 기반 1차 분할 및 노드 생성
         # algorithms/doors.py 호출
         """
-        타겟을 방으로 삼아 공간을 분할하고자 한다. 
-        방을 나누는 가장 명확한 기준은 문이므로, 문을 기준으로 공간을 분할하여 노드를 생성한다.
-        이때 문이 로봇이 통과할 수 있는지 여부를 판단하여, 통과가 불가능한 문이 존재하는 방은 주행 불가능 영역으로 간주함. 
-        이때 이 타겟과 전체 영역에서 타겟을 뺀 나머지 중에 더 넓은 영역(복도, 거실 등)이 주행 가능 영역으로 선택됨.
+        타겟을 방으로 삼아 공간을 분할함.
+        방을 나누는 가장 명확한 기준은 문이므로, 문을 기준으로 공간을 분할해 노드를 생성함.
+        문이 로봇이 통과할 수 있는지 여부를 판단해, 통과가 불가능한 문이 존재하는 방은 주행
+        불가능 영역으로 간주함 - 이때 이 타겟과 전체 영역에서 타겟을 뺀 나머지 중 더 넓은
+        영역(복도, 거실 등)이 주행 가능 영역으로 선택됨.
         """
         print("\n[Step 2] Splitting by doors and Geodesic sensing assignment...")
         nodes_after_doors = split_by_doors(
@@ -98,9 +97,9 @@ class SpaceSegmenter:
         # [Step 3] hole(구멍) 탐지 및 분할
         # algorithms/holes.py 호출
         """
-        타겟은 실내 구멍이 있는 도넛형 공간이다. 
-        이전 단계(nodes_after_doors)에서 생성된 노드들을 순회하며 구멍이 있다면 절단함.
-        구멍 표면에서 가장 가까운 외벽을 찾아 절단선을 그은 후, 
+        타겟은 실내 구멍이 있는 도넛형 공간임.
+        이전 단계(nodes_after_doors)에서 생성된 노드들을 순회하며 구멍이 있으면 절단함.
+        구멍 표면에서 가장 가까운 외벽을 찾아 절단선을 그은 후,
         Connected Components로 분할된 각각의 조각들을 새로운 노드로 등록하는 방식임.
         """
         print("\n[Step 3] Detecting and cutting holes (non-convex sections)...")
@@ -116,10 +115,11 @@ class SpaceSegmenter:
         
         # [Step 4] 볼록성(Solidity) 기반 오목한 공간(L자 복도 등) 분할
         """
-        타겟은 L자형 복도 등 볼록성이 낮은 오목한 공간이다.
-        재귀적으로 볼록성이 낮은 노드에 대해, 절단선을 그어 분할한다.
-        이때 절단선은 구멍 탐지에서 사용한 방식과 유사하게, 볼록성이 낮은 영역의 표면에서 가장 가까운 외벽을 찾아 그은 후, 
-        Connected Components로 분할된 각각의 조각들을 새로운 노드로 등록하는 방식이다.
+        타겟은 L자형 복도 등 볼록성이 낮은 오목한 공간임.
+        재귀적으로 볼록성이 낮은 노드에 대해 절단선을 그어 분할함.
+        절단선은 구멍 탐지에서 사용한 방식과 유사하게, 볼록성이 낮은 영역의 표면에서 가장
+        가까운 외벽을 찾아 그은 후, Connected Components로 분할된 각각의 조각들을 새로운
+        노드로 등록하는 방식임.
         """
         # algorithms/convexity.py 호출
         print("\n[Step 4] Recursive decomposition for non-convex sections...")
@@ -135,8 +135,8 @@ class SpaceSegmenter:
         # [Step 5] 너무 긴 복도 분할
         # algorithms/subdivider.py 호출
         """
-        타겟은 매우 긴 복도이다.
-        매우 긴 복도는 로봇 운용에 비효율적일 수 있으므로, 설정된 비율을 초과하는 노드를 분할한다.
+        타겟은 매우 긴 복도임.
+        매우 긴 복도는 로봇 운용에 비효율적일 수 있으므로, 설정된 비율을 초과하는 노드를 분할함.
         """
         print("\n[Step 5] Subdividing long/linear nodes for operational efficiency...")
         

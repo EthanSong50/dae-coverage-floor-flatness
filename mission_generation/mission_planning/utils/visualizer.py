@@ -5,7 +5,7 @@ import colorsys
 
 def _render_full_viz(nodes, path_segments, global_mask):
     """
-    내부 헬퍼 함수: 노드와 경로 데이터를 바탕으로 시각화용 RGB 이미지를 생성합니다.
+    내부 헬퍼 함수: 노드와 경로 데이터를 바탕으로 시각화용 RGB 이미지를 생성함.
     """
     h, w = global_mask.shape[:2]
     viz_mask = np.zeros((h, w, 3), dtype=np.uint8)
@@ -59,6 +59,19 @@ def _render_full_viz(nodes, path_segments, global_mask):
                     pt1 = tuple(map(int, path[k])); pt2 = tuple(map(int, path[k + 1]))
                     cv2.line(viz_mask, pt1, pt2, (0, 255, 0), 1, cv2.LINE_AA)
 
+        elif seg_type == 'repass_preview':
+            # boundary_repass(mission_execution/utils/boundary_repass.py)가 실행 시
+            # 만들 왕복(러닝스타트/되짚기) 예상 경로 - 시안색 화살표로 별도 표시.
+            # path[0]=coverage 시작/끝점, path[1]=예상 runway/retrace 지점.
+            pt0 = tuple(map(int, path[0])); pt1 = tuple(map(int, path[1]))
+            cv2.arrowedLine(viz_mask, pt0, pt1, (255, 255, 0), 2, cv2.LINE_AA, tipLength=0.15)
+            cv2.circle(viz_mask, pt1, 4, (255, 255, 0), -1)
+            label = segment.get('label', 'repass')
+            cv2.putText(viz_mask, label, (pt1[0] + 6, pt1[1] - 6),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 3)
+            cv2.putText(viz_mask, label, (pt1[0] + 6, pt1[1] - 6),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)
+
     # 3. 노드 ID 표시
     for i, node in enumerate(nodes):
         mask = node['driveable_mask']
@@ -93,7 +106,7 @@ def _render_full_viz(nodes, path_segments, global_mask):
 
 def save_debug_image(nodes, path_segments, global_mask, output_dir="./debug_image", filename="full_mission_connected.png"):
     """
-    최종 미션 상태를 이미지 파일로 저장합니다.
+    최종 미션 상태를 이미지 파일로 저장함.
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -106,7 +119,7 @@ def save_debug_image(nodes, path_segments, global_mask, output_dir="./debug_imag
 
 def plot_mission_state(nodes, path_segments, global_mask, wait_key=0):
     """
-    현재 미션 상태를 화면에 표시합니다.
+    현재 미션 상태를 화면에 표시함.
     """
     viz_image = _render_full_viz(nodes, path_segments, global_mask)
     cv2.imshow("Mission State Visualization", viz_image)
@@ -115,7 +128,7 @@ def plot_mission_state(nodes, path_segments, global_mask, wait_key=0):
 
 def draw_waypoint_on_image(viz_image, pixel_points):
     """
-    이미지 위에 샘플링된 경로 포인트들을 그립니다.
+    이미지 위에 샘플링된 경로 포인트들을 그림.
     """
     for pt in pixel_points:
         # (x, y) 좌표에 점을 찍음 (색상: 검정색)

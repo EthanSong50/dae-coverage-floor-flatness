@@ -3,15 +3,14 @@
   turtlebot3_waffle.gazebo.xacro
 
   Gazebo 전용 플러그인 정의 파일. 로봇의 물리적 구조(joint/link)는 전혀 포함하지
-  않으며, turtlebot3_description/urdf/turtlebot3_waffle.urdf.xacro 가 이 파일을
-  include하여 사용한다.
+  않으며, turtlebot3_waffle.urdf.xacro가 이 파일을 include해서 사용함.
 
-  기존 turtlebot3_gazebo/models/turtlebot3_waffle/model.sdf 에 정의되어 있던
+  기존 turtlebot3_gazebo/models/turtlebot3_waffle/model.sdf에 정의되어 있던
   플러그인들(diff_drive, imu, lds ray sensor, camera, joint_state_publisher)을
-  그대로 이식하였고, VLP-16(3D LiDAR)용 gpu_ray 플러그인을 신규로 추가하였다.
+  그대로 이식했고, VLP-16(3D LiDAR)용 gpu_ray 플러그인을 신규로 추가함.
 
   네임스페이스: ${namespace} 프로퍼티는 이 파일을 include하는
-  turtlebot3_waffle.urdf.xacro 에서 이미 정의되어 있어야 한다.
+  turtlebot3_waffle.urdf.xacro에서 이미 정의되어 있어야 함.
 -->
 <robot xmlns:xacro="http://ros.org/wiki/xacro">
 

@@ -2,13 +2,13 @@ import cv2
 import numpy as np
 import colorsys
 import os
-# 시각화 유틸리티 함수들. 
-# 맵 분할 파이프라인의 각 단계에서 중간 결과를 시각화하여 디버깅 및 분석에 활용하기 위한 함수들임.
-# visualize_geometry_view: 단일 마스크나 이미지를 저장하는 함수이다. 맵 분할 파이프라인의 Step 1과 Step 2에서 사용됨. 예를 들어, 주행 가능 영역과 비주행 영역을 구분하여 시각화할 때 활용됨.
-# visualize_node_view: 여러 노드를 시각화하는 함수이다. 맵 분할 파이프라인의 Step 3부터 Step 6까지 사용됨.
+# 시각화 유틸리티 함수들.
+# 맵 분할 파이프라인의 각 단계에서 중간 결과를 시각화해 디버깅 및 분석에 활용하기 위한 함수들임.
+# visualize_geometry_view: 단일 마스크나 이미지를 저장하는 함수. 맵 분할 파이프라인의 Step 1과 Step 2에서 사용됨 - 주행 가능 영역과 비주행 영역을 구분해 시각화할 때 활용됨.
+# visualize_node_view: 여러 노드를 시각화하는 함수. 맵 분할 파이프라인의 Step 3부터 Step 6까지 사용됨.
 def visualize_geometry_view(image, step_name, save_path):
     """
-    단순 마스크나 이미지를 지정된 경로에 저장합니다. (맵 분할 파이프라인 Step 1, 2용)
+    단순 마스크나 이미지를 지정된 경로에 저장함. (맵 분할 파이프라인 Step 1, 2용)
     """
     if image is None:
         return

@@ -11,12 +11,12 @@ def generate_launch_description():
     Jetson Orin Nano(turtlebot3 Waffle)에서 MissionExecutor(mission_executor.py) 실행
 
     전제 조건:
-    1. turtleBot3 bringup이 이미 실행 중이어야 한다.
+    1. turtleBot3 bringup이 이미 실행 중이어야 함.
     2. turtlebot3_navigation2의 navigation2.launch.py(map_server, amcl,
       lifecycle_manager, controller_server, planner_server, bt_navigator 등 포함)가
-      이미 실행 중이어야 한다. 
+      이미 실행 중이어야 함.
 
-    이 launch 파일은 그 위에서 mission_executor 노드 하나만 추가로 띄우는 역할만 함. 
+    이 launch 파일은 그 위에서 mission_executor 노드 하나만 추가로 띄우는 역할만 함.
       (Nav2 스택 중복 실행 방지)
 
     Terminal Command:

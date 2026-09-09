@@ -2,13 +2,13 @@ import math
 import json
 
 def _get_heading(p1, p2):
-    """두 점 사이의 진행 방향(각도)을 반환합니다."""
+    """두 점 사이의 진행 방향(각도)을 반환함."""
     x1, y1 = p1['pose']['position']['x'], p1['pose']['position']['y']
     x2, y2 = p2['pose']['position']['x'], p2['pose']['position']['y']
     return math.atan2(y2 - y1, x2 - x1)
 
 def _distance(p1, p2):
-    """두 점 사이의 유클리디안 거리를 반환합니다."""
+    """두 점 사이의 유클리디안 거리를 반환함."""
     x1, y1 = p1['pose']['position']['x'], p1['pose']['position']['y']
     x2, y2 = p2['pose']['position']['x'], p2['pose']['position']['y']
     return math.hypot(x2 - x1, y2 - y1)
@@ -16,11 +16,13 @@ def _distance(p1, p2):
 def _resample_single_segment(poses, seg_type, record_pcd):
     """
     단일 세그먼트(coverage 스와스 하나, 또는 transit run 하나)에서 진짜
-    꺾이는 지점(앵커)만 추출한다. mission_planner.py가 A* 결과에
+    꺾이는 지점(앵커)만 추출함. mission_planner.py가 A* 결과에
     simplify_path(Douglas-Peucker)를 이미 적용해 격자 지그재그를 제거해
-    두므로, 여기 남는 점은 전부 실제로 의미 있는 코너다.
+    두므로, 여기 남는 점은 전부 실제로 의미 있는 코너임. 직선 중간의
+    보간점(_midpoint)은 두지 않음 - 시작/꼭짓점/끝만으로 "지나쳐야
+    채워진다" 원칙(HISTORY.md §1)을 충분히 만족함이 실측 검증됨.
 
-    세그먼트의 시작점과 끝점은 항상 원본 좌표 그대로 보존된다(보간 없음).
+    세그먼트의 시작점과 끝점은 항상 원본 좌표 그대로 보존됨(보간 없음).
     """
     if len(poses) == 0:
         return []

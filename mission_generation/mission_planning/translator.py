@@ -17,8 +17,8 @@ def euler_to_quaternion(yaw):
 
 def convert_segments_to_nav2(path_segments, origin, resolution, map_height):
     """
-    기존처럼 전체를 Flattening 하지 않고, 세그먼트 본연의 데이터 구조 구조를 유지한 상태로
-    메트릭(Meter) 좌표 및 Quaternion 보정을 수행합니다.
+    전체를 flatten하지 않고 세그먼트 본연의 데이터 구조를 유지한 상태로 메트릭(Meter)
+    좌표 및 Quaternion 보정을 수행함.
     """
     translated_segments = []
     

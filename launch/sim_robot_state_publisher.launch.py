@@ -24,6 +24,8 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
+from launch_ros.parameter_descriptions import ParameterValue
+
 def generate_launch_description():
     TURTLEBOT3_MODEL = os.environ.get('TURTLEBOT3_MODEL', 'waffle')
     
@@ -50,7 +52,7 @@ def generate_launch_description():
         PythonExpression(['"', namespace, '" + "/" if "', namespace, '" != "" else ""']),
     ])
 
-    rsp_params = {'robot_description': robot_desc}
+    rsp_params = {'robot_description': ParameterValue(robot_desc, value_type=str)}
 
     return LaunchDescription([
         DeclareLaunchArgument(

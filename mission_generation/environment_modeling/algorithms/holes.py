@@ -31,7 +31,7 @@ def cut_holes(node, resolution):
         for i in range(len(contours)):
             parent_idx = hierarchy[0][i][3]
                 
-            # Parent가 존재한다면 (-1이 아니라면) 해당 윤곽선은 도형 내부의 '구멍'임
+            # Parent가 존재하면(-1이 아니면) 해당 윤곽선은 도형 내부의 '구멍'임
             if parent_idx != -1:
                 # 미세한 픽셀 노이즈는 섬으로 취급하지 않음 (예: 0.5 제곱미터 미만 무시)
                 # 구멍의 면적 계산 (단위: 픽셀 -> 제곱미터)

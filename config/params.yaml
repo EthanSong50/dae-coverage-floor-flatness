@@ -10,7 +10,7 @@ global:
 environment_modeling:
   # [Global Settings]
   target_resolution: 0.02 # 맵의 해상도 (meter/pixel). 값이 작을수록 정밀하지만 계산량이 증가.
-  dae_file: "Apt.dae" # 분석 대상 3D 모델 파일명. INU_9_211.dae, Apt.dae
+  dae_file: "Apt.dae" # 분석 대상 3D 모델 파일명. (INU_9_211.dae, Apt.dae) 파일명 바꾸고 난 이후, coverage_flatness_env.world에서도 바꿀 것.
 
   # [Strict Directory Mappings]
   input_dir: "assets"
@@ -19,10 +19,7 @@ environment_modeling:
   visualization_dir: "visualization/mission_generation/environment_modeling" # 디버깅 이미지
   
   # [Robot & Environment Constraints]
-  robot_width: 0.14 # (m) 로봇 반경.(벽)
-  lidar_mount_height: 0.338 # (m) base_footprint(지면) 기준 velodyne_link 높이. 실측하여 정확한 값을 기입바람.
-  lidar_vertical_fov_deg: 15.0 # 수직 FOV 절반
-  path_safety_margin: 0.25
+  robot_width: 0.15 # (m) 로봇 반경. 시각화에서 핑크 구역은 robot_width만 깎아낸 것임
   max_door_radius: 0.5 # 일반적인 방의 문 폭의 최대 너비의 절반: 1.0 / 2 = 0.5 (m)
   min_area_px: 100 # 분할된 조각이 너무 작아지는 것 방지.
   max_aspect_ratio: 8 # 공간의 최대 종횡비의 기준. 예를 들어 공간의 종횡비가 5 이상이라면, 지나치게 긴 공간으로 간주하여 분할함.
@@ -31,7 +28,7 @@ environment_modeling:
   # 공간의 convexity을 기준으로 L자, U자형 공간을 사각형에 가깝게 분할하는 로직
   convexity: 
     # 1. 분할 실행 임계값
-    base_solidity_threshold: 0.86   # 기본 분할 기준 (Solidity). 1.0에 가까울수록 엄격하게(더 많이) 분할함.
+    base_solidity_threshold: 0.84   # 기본 분할 기준 (Solidity). 1.0에 가까울수록 엄격하게(더 많이) 분할함.
     strict_solidity_threshold: 0.75 # 강제 분할 기준. 볼록성이 이 수치 미만이면 병목이 작아도 무조건 분할 시도.
     l_shape_ratio_threshold: 0.85   # (최소폭 / 평균폭)값이 이 값보다 작으면 L자 코너로 판단.
     
@@ -40,7 +37,7 @@ environment_modeling:
     bottleneck_tolerance_ratio: 1.05 # 병목 구간 인정 오차 범위. 최솟값의 105% 이내 픽셀들을 모두 최적 절단 후보군으로 설정.
     
     # 3. 마스크 복원 및 필터링 (Dilation)
-    # 절단된 노드들에 인접한 벽면 데이터를 안전하게 빠집없이 배분히기 위한 설정
+    # 절단된 노드들에 인접한 벽면 데이터를 안전하게 빠짐없이 배분하기 위한 설정
     dilation_kernel_size: 5         # 벽면 탐색을 위한 커널 크기 (pixel). 해상도가 높을수록 키우는 것을 권장.
     dilation_padding_px: 10         # 노드 확장 시의 추가 여유분 (pixel). 노드 크기의 절반 + 이 값만큼 확장하여 벽면 데이터를 수집함.
 
@@ -48,6 +45,10 @@ environment_modeling:
 # [2. Mission Generation - Mission Planning Component]
 # ==============================================================================
 mission_planner:
+  lidar_vertical_fov_deg: 15.0 # 수직 FOV 절반
+  lidar_mount_height: 0.338 # (m) base_footprint(지면) 기준 velodyne_link 높이. 실측하여 정확한 값을 기입바람.
+  path_safety_margin: 0.20 # robot_width + path_safety_margin 만큼 경로가 벽에서 떨어져서 생성되도록 함. 
+
   lidar_range: 3.0 # 라이다 측정 최대 범위 (m)
   overlap: 0.2 # 이동하면서 측정 시 오버랩할 비율
   
@@ -57,6 +58,13 @@ mission_planner:
 
   turn_weight: 2.0
   wall_weight: 12.0
+
+  # [Ablation 실험용 토글] 연구 기여점 정량 비교를 위해 각 메커니즘을 개별
+  # on/off 가능하게 함(paper.md 결론, 2026-09-03). boundary repass는
+  # mission_execution.enable_boundary_repass로 이미 토글 가능함.
+  enable_pendant_reorder: true       # false면 Step2.5 허브-pendant 재정렬 생략(Christofides 순서 그대로)
+  enable_entry_hint_ordering: true   # false면 노드 내 스와스 순서가 진입/진출 방향과 무관하게 고정됨
+  enable_path_simplification: true   # false면 A* transit 경로의 계단현상 제거(Douglas-Peucker)를 생략
 
 # ==============================================================================
 # [3. Mission Execution - Robot Driving & Tracking Component]
@@ -69,13 +77,31 @@ mission_execution:
 
   post_localization_wait_sec: 3.0
 
-  ignore_initial_seconds: 1.0
+  coverage_angular_dist_threshold: 0.780   # coverage 구간 - yaml 기본값과 동일(정밀 회전 유지)
+  transit_angular_dist_threshold: 3.140    # transit 구간 - 사실상 강제 회전 비활성화
+
   active_capture_seconds: 2.0
   min_rotation_deg: 3.0          # 이 이하 각도차는 회전 생략
   spin_time_allowance_sec: 15.0
-  capture_tail_sec: 3    # 사각지대 반경만큼 실제로 더 이동하는 데 걸리는 시간 (대략 blind_radius_m / 로봇 평균 선속도)
+  tf_lookup_retry_sec: 1.0       # map->base_link TF 조회 실패 시 재시도할 최대 시간(초). 버퍼/리스너 생성 직후처럼 TF 이력이 아직 얕을 때의 일시적 ExtrapolationException을 흡수함.
 
-  direction_change_threshold_deg: 15.0 # 좁은 구역 측정 문제를 해결하기 위해 coverage/transit 무시함. 전체 경로를 대상으로, 15도 이상 방향이 바뀌는 지점으로 분할.
+  direction_change_threshold_deg: 30.0 # 좁은 구역 측정 문제를 해결하기 위해 coverage/transit 무시함. 전체 경로를 대상으로, 30도 이상 방향이 바뀌는 지점으로 분할.
+
+  # [Boundary Repass] 모든 coverage exit 지점(중간 노드 exit + 미션의 진짜
+  # 마지막 지점)은 "멀어짐" 방향 시야가 구조적으로 보장되지 않아 blind cone이
+  # 한쪽만 메워짐(utils/boundary_repass.py 참고). 미션의 진짜 첫 지점은
+  # "접근" 방향 시야가 아예 없어 별도로 run_start_prepass가 보완함.
+  # blind cone이 없는 센서로 교체되면 false로 꺼서 완전히 비활성화 가능.
+  enable_boundary_repass: true
+  boundary_repass_distance_m: 3.0   # 왕복 거리 (m). blind_radius_m(약 1.26m)의 약 2배 이상 필요함이 2026-09-01 실주행 히트맵 육안 확인으로 재확인됨(1.5m로는 부족, 2026-08-25 최초 관찰 반영). 세그먼트가 이보다 짧으면 자동으로 세그먼트 길이에 맞춰 clamp됨.
+
+  # [Stall Logging] nav2 goToPose/goThroughPoses/Spin feedback을 blocking 대기
+  # 루프 안에서 계속 폴링해, 진행 지표(distance_remaining/angular_distance_traveled)가
+  # stall_log_threshold_sec 이상 전혀 바뀌지 않는 구간을 "지연"으로 기록함.
+  # 미션이 끝나면(성공/실패/취소 무관) 그 목록만 stall_log_dir에 CSV로 따로
+  # 저장된다(utils/stall_logger.py) - 다른 로그와 섞이지 않아 디버깅이 쉬움.
+  stall_log_threshold_sec: 5.0
+  stall_log_dir: "analytics/logs"
 
 # ==============================================================================
 # [4. Surface Profiling - 3D Measurement & Evaluation Component]

@@ -12,13 +12,13 @@ import matplotlib.image as mpimg
 
 def _load_occupancy_map(map_yaml_dir):
     """map_yaml_dir(.yaml파일이 있는 위치)와 같은 폴더의 이미지(.pgm/.png)를 읽어
-    (image_array, resolution, origin_x, origin_y)를 반환한다.
+    (image_array, resolution, origin_x, origin_y)를 반환함.
     origin은 ROS map_server 규격 그대로: 이미지 '왼쪽 아래' 픽셀이 world 좌표
-    (origin_x, origin_y)에 대응한다.
+    (origin_x, origin_y)에 대응함.
 
-    주의: origin의 세 번째 값(yaw)은 현재 반영하지 않는다(0으로 가정).
+    주의: origin의 세 번째 값(yaw)은 현재 반영하지 않음(0으로 가정).
     yaw != 0인 맵을 쓰게 되면 히트맵과 배경 맵이 어긋나 보이므로,
-    그 경우 이 함수에 회전 변환을 추가해야 한다."""
+    그 경우 이 함수에 회전 변환을 추가해야 함."""
     with open(map_yaml_dir, 'r') as f:
         meta = yaml.safe_load(f)
 
@@ -54,17 +54,17 @@ def generate_floor_heatmap(
 ):
     """
     바닥면 필터링이 끝난 PCD 데이터를 X-Y 평면 격자로 나누고, 각 격자의 평균 z값을
-    바닥 요철 실측 범위([z_min, z_max])를 기준으로 정규화하여 평탄도 히트맵
-    이미지를 생성, PNG로 저장합니다.
+    바닥 요철 실측 범위([z_min, z_max])를 기준으로 정규화해 평탄도 히트맵
+    이미지를 생성, PNG로 저장함.
 
     z_min, z_max: 색상 스케일의 절대 하한/상한(m). 데이터셋 자체의 min/max가
-        아니라 "바닥 평탄도로서 의미 있는 범위"를 고정값으로 지정한다 —
+        아니라 "바닥 평탄도로서 의미 있는 범위"를 고정값으로 지정함 —
         벽처럼 이 범위를 벗어나는 포인트가 섞여 들어와도 색 스케일이
         영향받지 않도록 하기 위함. floor_extractor의 z_min/z_max와
         동일한 값을 쓰는 것을 권장.
     map_yaml_dir: 지정하면(예: map_from_dae.yaml) 해당 2D OGM 이미지를
-        배경으로 깔고 그 위에 히트맵을 반투명 오버레이한다. None이면
-        기존처럼 히트맵만 단독으로 그린다(하위 호환).
+        배경으로 깔고 그 위에 히트맵을 반투명 오버레이함. None이면
+        히트맵만 단독으로 그림(하위 호환).
 
     참고: 정규화는 이제 데이터셋 자체의 min/max가 아니라 z_min/z_max로 고정된
     절대 기준이며, 여전히 건축 표준 규격에 따른 평탄도 허용 오차 기준과는
@@ -91,9 +91,9 @@ def generate_floor_heatmap(
     heatmap = np.divide(heatmap_sum, heatmap_count, out=np.zeros_like(heatmap_sum), where=heatmap_count != 0)
     heatmap[heatmap_count == 0] = np.nan  # 빈 공간은 NaN 처리
 
-    # [변경] 데이터셋 자체 min/max가 아니라, 바닥 평탄도로서 의미 있는
+    # 데이터셋 자체 min/max가 아니라, 바닥 평탄도로서 의미 있는
     # 절대 범위(z_min~z_max)로 정규화 + clip. 이렇게 해야 필터링을 뚫고
-    # 섞여 들어온 극단값(예: 벽 하단 일부)이 있어도 색 스케일이 왜곡되지 않는다.
+    # 섞여 들어온 극단값(예: 벽 하단 일부)이 있어도 색 스케일이 왜곡되지 않음.
     heatmap_clipped = np.clip(heatmap, z_min, z_max)
     heatmap_norm = (heatmap_clipped - z_min) / (z_max - z_min)
 

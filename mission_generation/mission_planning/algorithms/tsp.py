@@ -7,8 +7,8 @@ from mission_planning.utils import geometry
 
 def extract_waypoints(nodes, global_mask):
     """
-    노드 간의 연결 정보를 이용해 각 노드 간의 안전한 연결 지점(Waypoint)을 계산합니다.
-    동시에 A* 탐색에서 좁은 경계를 안전하게 넘을 수 있도록 확장된 planning_mask를 반환합니다.
+    노드 간의 연결 정보를 이용해 각 노드 간의 안전한 연결 지점(Waypoint)을 계산함.
+    동시에 A* 탐색에서 좁은 경계를 안전하게 넘을 수 있도록 확장된 planning_mask를 반환함.
     """
     planning_mask = global_mask.copy()
     waypoints = {}
@@ -56,17 +56,24 @@ def extract_waypoints(nodes, global_mask):
 
 def solve_tsp_sequence(nodes, global_mask):
     """
-    노드 간 연결망을 분석하여 최적의 방문 순서(TSP Sequence)와 상세 이동 경로를 계산합니다.
-    
+    노드 간 연결망을 분석해 최적의 방문 순서(TSP Sequence)와 상세 이동 경로를 계산함.
+
     Returns:
         tsp_path (list): 실제 Coverage를 수행해야 하는 노드들의 방문 순서
         detailed_sequence (list): 타겟으로 이동하기 위해 거쳐가는 경유 노드가 포함된 상세 시퀀스
         planning_mask (np.ndarray): A* 경로 탐색에 사용될 확장된 맵 마스크
         waypoints (dict): (i, j) 노드 쌍 -> (px, py) 연결 지점(문지방 등 안전 통과 지점).
             mission_planner.py가 각 노드의 coverage 진입/진출 방향을 TSP 방문 순서의
-            흐름에 맞게 정하는 데 사용한다(예: 방 A -> 복도 B -> 복도 C로 이동할 때,
+            흐름에 맞게 정하는 데 사용함(예: 방 A -> 복도 B -> 복도 C로 이동할 때,
             A의 coverage 종료 지점과 B의 coverage 시작 지점이 A-B 연결 지점 근처가
             되도록 정렬).
+
+        connection_widths_px (dict): (i, j) 노드 쌍 -> 연결부 로컬 통과 폭(px).
+        connection_masks (dict): (i, j) 노드 쌍 -> 해당 연결부의 dilated_overlap 마스크.
+            둘 다 노드 자체는 넓어도 연결부(문지방 등)가 좁은 경우를 보완(assist_mask)하기
+            위해 도입됐던 값인데, 그 보완 로직 자체가 실측 검증 후 불필요함이 확인되어
+            제거됨(HISTORY.md §2 참고) - mission_planner.py는 현재 이 두 값을
+            `_connection_widths_px`/`_connection_masks`로 언패킹만 하고 쓰지 않음.
     """
     # 1. 연결 지점 및 경로 탐색용 마스크 획득
     waypoints, planning_mask, connection_widths_px, connection_masks = extract_waypoints(nodes, global_mask)
