@@ -649,7 +649,9 @@ class MissionPlanner:
                 preview_segments.append({
                     'type': 'repass_preview',
                     'path': [tuple(runway.astype(int)), tuple(p0.astype(int))],
-                    'label': 'start prepass',
+                    'label': f'START HERE ({d * self.map_resolution:.2f}m)',
+                    'label_at': 0,  # runway 지점(실제 로봇을 놔야 하는 곳)에 라벨을 붙임 -
+                                    # p0는 이미 순번 "1"이 찍혀있어서 그쪽에 붙이면 안 보임.
                 })
                 print(f"    [start prepass] mission start (path_segments[0]) - "
                       f"runway {d * self.map_resolution:.2f}m")
@@ -690,7 +692,8 @@ class MissionPlanner:
             preview_segments.append({
                 'type': 'repass_preview',
                 'path': [tuple(p_end.astype(int)), tuple(retrace.astype(int))],
-                'label': f'exit repass #{n_coverage_exits}',
+                'label': f'exit repass #{n_coverage_exits} ({d_m:.2f}m)',
+                'label_at': 1,  # retrace 지점(되짚어 나가야 하는 곳)에 라벨
             })
             n_previewed += 1
             print(f"    [exit repass] {tag} - retrace {d_m:.2f}m")

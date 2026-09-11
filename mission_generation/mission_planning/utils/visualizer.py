@@ -62,14 +62,21 @@ def _render_full_viz(nodes, path_segments, global_mask):
         elif seg_type == 'repass_preview':
             # boundary_repass(mission_execution/utils/boundary_repass.py)가 실행 시
             # 만들 왕복(러닝스타트/되짚기) 예상 경로 - 시안색 화살표로 별도 표시.
-            # path[0]=coverage 시작/끝점, path[1]=예상 runway/retrace 지점.
+            # path[0]=coverage 시작/끝점 또는 runway, path[1]=예상 retrace/p0 지점.
+            # 라벨은 두 점 중 "이미 순번이 찍히지 않은, 실제로 새로 알아야 하는
+            # 지점"에 붙여야 하므로 label_at으로 지정함(기본값 1 = 기존 동작 유지).
             pt0 = tuple(map(int, path[0])); pt1 = tuple(map(int, path[1]))
             cv2.arrowedLine(viz_mask, pt0, pt1, (255, 255, 0), 2, cv2.LINE_AA, tipLength=0.15)
             cv2.circle(viz_mask, pt1, 4, (255, 255, 0), -1)
+            label_at = segment.get('label_at', 1)
+            label_pt = pt0 if label_at == 0 else pt1
+            if label_at == 0:
+                # runway(로봇을 실제로 놔야 하는 지점) - 눈에 잘 띄게 큰 원으로 별도 표시
+                cv2.circle(viz_mask, pt0, 7, (255, 255, 0), 2)
             label = segment.get('label', 'repass')
-            cv2.putText(viz_mask, label, (pt1[0] + 6, pt1[1] - 6),
+            cv2.putText(viz_mask, label, (label_pt[0] + 6, label_pt[1] - 6),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 3)
-            cv2.putText(viz_mask, label, (pt1[0] + 6, pt1[1] - 6),
+            cv2.putText(viz_mask, label, (label_pt[0] + 6, label_pt[1] - 6),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)
 
     # 3. 노드 ID 표시
