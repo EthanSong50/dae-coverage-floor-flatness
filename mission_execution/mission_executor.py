@@ -1207,11 +1207,27 @@ class MissionExecutor(Node):
     # 직선 주행 (nav2_msgs/action/NavigateToPose, coverage run의 끝점으로 1회 전송)
     # ------------------------------------------------------------------
 
-    def _navigate_to_pose_blocking(self, pose, label='drive-to-pose'):
+    def _navigate_to_pose_blocking(self, pose, label='drive-to-pose', _retry=False):
+        """
+        nav2의 기본 recovery BT(navigate_to_pose_w_replanning_and_recovery.xml)는
+        스스로 포기하는 시점이 없어서, 좁은 문지방 등에서 막히면
+        number_of_recoveries만 계속 늘려가며 사실상 무한히 재시도함(실측
+        2026-09-11: distance_remaining이 0.93~0.95m에서 200초+ 정체, recoveries
+        18회+ 누적되고도 안 끝남 - drive_debug 로그로 확인됨). 그래서 여기서
+        직접 "진행 없음이 nav_stuck_cancel_sec 이상 지속되면 취소" 워치독을
+        둠 - StallWatcher(사후 리포트용)와 별개로 지금 당장 개입하기 위한
+        자체 추적임. 취소 후 한 번은 후진(_backup_for_clearance)으로 여유를
+        만들고 같은 목표를 재전송함(_retry=True) - 그래도 막히면 그때는
+        포기하고 세그먼트 실패로 처리함(직선 주행을 costmap 체크 없이 강행
+        하는 건 회전보다 위험도가 높아 direct cmd_vel 폴백은 두지 않음).
+        """
         self.navigator.goToPose(pose)
 
         stall_watcher = StallWatcher(f"{label} [drive]", stall_threshold_sec=self._stall_threshold_sec())
+        stuck_cancel_sec = self.mission_exec_cfg.get('nav_stuck_cancel_sec', 45.0)
         last_debug_print_time = time.time()
+        last_progress_value = None
+        last_progress_time = time.time()
         try:
             while not self.navigator.isTaskComplete():
                 rclpy.spin_once(self.navigator, timeout_sec=0.01)
@@ -1229,6 +1245,23 @@ class MissionExecutor(Node):
                 stall_watcher.update(remaining, recoveries=recoveries)
                 self._set_nav_status('NavigateToPose', label=label, progress_kind='distance_remaining',
                                       progress_value=remaining, recoveries=recoveries)
+
+                if remaining is not None and (last_progress_value is None
+                                               or abs(remaining - last_progress_value) > 0.05):
+                    last_progress_value = remaining
+                    last_progress_time = current_time
+
+                if current_time - last_progress_time >= stuck_cancel_sec:
+                    print(f"[!] {label}: stuck {stuck_cancel_sec:.0f}s+ with no real progress "
+                          f"(distance_remaining={remaining}, recoveries={recoveries}) - canceling nav2 task.")
+                    self.navigator.cancelTask()
+                    self._stall_events.extend(stall_watcher.finalize())
+                    if _retry:
+                        print(f"  [!] {label}: retry also got stuck. Giving up.")
+                        return False
+                    print(f"  [!] {label}: backing up and retrying once...")
+                    self._backup_for_clearance(label=label)
+                    return self._navigate_to_pose_blocking(pose, label=label, _retry=True)
 
                 if current_time - last_debug_print_time >= 1.0:
                     if remaining is not None:
@@ -1296,7 +1329,7 @@ class MissionExecutor(Node):
             print(f"  [!] Warning: Failed to set angular_dist_threshold (mode={mode}).")
         return ok
 
-    def _navigate_through_poses_blocking(self, seg_poses, label='drive-through-poses'):
+    def _navigate_through_poses_blocking(self, seg_poses, label='drive-through-poses', _retry=False):
         """
         seg_poses 전체를 NavigateThroughPoses(goThroughPoses)로 한 번에 전달함.
         goToPose(end_pose)만 보내면 중간 지점(특히 코너 꼭짓점)을 글로벌 플래너가
@@ -1308,11 +1341,20 @@ class MissionExecutor(Node):
         주의: 중간 지점들의 orientation은 글로벌 플래너가 강제하지 않음
         (위치만 통과 지점으로 취급됨). 최종 목표(seg_poses[-1])의 orientation만
         도착 시 정렬 대상이 됨.
+
+        _navigate_to_pose_blocking과 동일한 이유로 "진행 없음이
+        nav_stuck_cancel_sec 이상 지속되면 취소 -> 후진 -> 1회 재시도 -> 그래도
+        막히면 포기" 워치독을 둠(nav2 기본 recovery BT가 스스로 포기하지 않는
+        문제의 실측 대응, 2026-09-11 - 자세한 배경은 _navigate_to_pose_blocking
+        참고).
         """
         self.navigator.goThroughPoses(seg_poses)
 
         stall_watcher = StallWatcher(f"{label} [drive]", stall_threshold_sec=self._stall_threshold_sec())
+        stuck_cancel_sec = self.mission_exec_cfg.get('nav_stuck_cancel_sec', 45.0)
         last_debug_print_time = time.time()
+        last_progress_value = None
+        last_progress_time = time.time()
         try:
             while not self.navigator.isTaskComplete():
                 rclpy.spin_once(self.navigator, timeout_sec=0.01)
@@ -1331,6 +1373,23 @@ class MissionExecutor(Node):
                 stall_watcher.update(remaining, recoveries=recoveries)
                 self._set_nav_status('NavigateThroughPoses', label=label, progress_kind='distance_remaining',
                                       progress_value=remaining, recoveries=recoveries)
+
+                if remaining is not None and (last_progress_value is None
+                                               or abs(remaining - last_progress_value) > 0.05):
+                    last_progress_value = remaining
+                    last_progress_time = current_time
+
+                if current_time - last_progress_time >= stuck_cancel_sec:
+                    print(f"[!] {label}: stuck {stuck_cancel_sec:.0f}s+ with no real progress "
+                          f"(distance_remaining={remaining}, recoveries={recoveries}) - canceling nav2 task.")
+                    self.navigator.cancelTask()
+                    self._stall_events.extend(stall_watcher.finalize())
+                    if _retry:
+                        print(f"  [!] {label}: retry also got stuck. Giving up.")
+                        return False
+                    print(f"  [!] {label}: backing up and retrying once...")
+                    self._backup_for_clearance(label=label)
+                    return self._navigate_through_poses_blocking(seg_poses, label=label, _retry=True)
 
                 if current_time - last_debug_print_time >= 1.0:
                     # if remaining is not None:

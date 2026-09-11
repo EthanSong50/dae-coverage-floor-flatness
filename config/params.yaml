@@ -134,6 +134,15 @@ mission_execution:
   direct_rotate_speed_rad_s: 0.3
   direct_rotate_timeout_sec: 20.0
 
+  # [Stuck Nav Watchdog] nav2 기본 recovery BT는 스스로 포기하는 시점이 없어서
+  # (RoundRobin으로 spin/wait/backup을 계속 재시도), 좁은 문지방 등에서 막히면
+  # number_of_recoveries만 계속 늘려가며 사실상 무한 대기할 수 있음이 실측
+  # 확인됨(2026-09-11, transit 구간에서 distance_remaining 0.93m 정체·
+  # recoveries 18회+, 200초+ 지속). _navigate_to_pose_blocking/
+  # _navigate_through_poses_blocking이 nav_stuck_cancel_sec 이상 진행이 없으면
+  # 직접 취소하고, 후진 후 1회 재시도, 그래도 막히면 세그먼트 실패로 처리함.
+  nav_stuck_cancel_sec: 45.0
+
 # ==============================================================================
 # [4. Surface Profiling - 3D Measurement & Evaluation Component]
 # ==============================================================================
