@@ -105,6 +105,35 @@ mission_execution:
   stall_log_threshold_sec: 5.0
   stall_log_dir: "analytics/logs"
 
+  # [Drive Debug Log] 미션 실행마다 새 파일(drive_debug_<날짜-시간>.csv)을
+  # drive_debug_log_dir에 만들어, drive_debug_interval_sec 간격으로 "그 시점에 로봇이 정확히 뭘 하고
+  # 있었는지"(현재 context - coverage 노드 id / transit 출발-도착 노드 /
+  # prepass / end repass, 현재 TF pose, 활성 nav2 액션과 진행 지표, recoveries
+  # 발동 횟수)를 계속 남김. drive_debug_stall_threshold_sec 이상 진행이 없으면
+  # 그 구체적 원인 1차 진단(utils/mission_logger.py._build_stall_reason)까지
+  # 같은 줄에 덧붙임. stall_log_dir의 사후 요약(stall_report_*.csv)과 달리
+  # 미션 도중 실시간으로 계속 쌓여서, 프로세스가 중간에 죽어도 그때까지 기록이
+  # 남음. 벽 근접이 아닌 "방 한복판"에서 멈추는 사례처럼 원인이 불분명할 때를
+  # 위해 2026-09-11 도입.
+  drive_debug_log_dir: "analytics/logs"
+  drive_debug_interval_sec: 3.0
+  drive_debug_stall_threshold_sec: 9.0
+
+  # [Spin Retry] boundary_repass 지점처럼 벽에 바짝 붙은 자리에서 Spin의 사전
+  # 충돌 체크(behavior_server의 simulate_ahead_time, tb3_waffle_nav2_params.yaml)에
+  # 걸려 즉시 실패하는 경우, 살짝 후진(BackUp)해 여유를 만든 뒤 1회만 재시도함
+  # (_rotate_in_place_to/_backup_for_clearance, 2026-09-11 실측 도입).
+  spin_retry_backup_dist_m: 0.15
+  spin_retry_backup_speed_mps: 0.05
+  backup_time_allowance_sec: 10.0
+
+  # [Direct cmd_vel Rotate - 최종 폴백] Spin 1차 시도 + (후진 후) 재시도까지
+  # 실패하면(혹은 후진 자체도 막히면), nav2 behavior_server를 아예 거치지 않고
+  # /cmd_vel을 직접 발행해 제자리 회전시킴 - costmap 사전 충돌 체크를 하지
+  # 않으므로 느린 속도로만 사용함(2026-09-11 도입, _direct_cmd_vel_rotate).
+  direct_rotate_speed_rad_s: 0.3
+  direct_rotate_timeout_sec: 20.0
+
 # ==============================================================================
 # [4. Surface Profiling - 3D Measurement & Evaluation Component]
 # ==============================================================================

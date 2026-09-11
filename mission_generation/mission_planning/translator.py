@@ -56,10 +56,16 @@ def convert_segments_to_nav2(path_segments, origin, resolution, map_height):
             segment_poses.append(pose_dict)
             
         # 변환된 데이터를 세그먼트 래퍼에 감싸서 보존
+        # node_id(coverage)/from_node_id,to_node_id(transit)는 실행 시점
+        # 디버그 로그(mission_execution/utils/mission_logger.py)가 "지금 몇 번
+        # 노드를 처리 중인지"를 표시하는 데 씀 - 있으면 그대로 전달, 없으면 None.
         translated_segments.append({
             'type': seg_type,
             'poses': segment_poses,
             'record_pcd': record_pcd,
+            'node_id': segment.get('node_id'),
+            'from_node_id': segment.get('from_node_id'),
+            'to_node_id': segment.get('to_node_id'),
         })
 
     return translated_segments

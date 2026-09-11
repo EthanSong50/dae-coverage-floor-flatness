@@ -569,14 +569,21 @@ class MissionPlanner:
 
                             if self.enable_path_simplification:
                                 full_enter_path = simplify_path(full_enter_path, epsilon_px=3.0)  # A* 지그재그 제거는 유지
-                            self.path_segments.append({'type': 'transit', 'path': full_enter_path, 'record_pcd': False})
+                            self.path_segments.append({
+                                'type': 'transit', 'path': full_enter_path, 'record_pcd': False,
+                                'from_node_id': self.nodes[prev_node]['id'] if prev_node is not None else None,
+                                'to_node_id': self.nodes[curr_node]['id'],
+                            })
                             transit_count += 1
                         else:
                             print(f"[ERROR] Cannot find safe path to Node {curr_node+1}. Wall detected!")
                     
                     # 측정 경로 추가 - coverage 자체는 F2C 스와스 그대로
                     # 저장함(raw_points, 종료 지점은 여전히 raw_points[-1]).
-                    self.path_segments.append({'type': 'coverage', 'path': raw_points, 'record_pcd': True})
+                    self.path_segments.append({
+                        'type': 'coverage', 'path': raw_points, 'record_pcd': True,
+                        'node_id': self.nodes[curr_node]['id'],
+                    })
                     coverage_count += 1
                     # 다음 노드로 가는 transit(Leg1)은 F2C 종료 지점이 아니라
                     # exit repass가 끝난 뒤 로봇이 실제로 있을 위치에서

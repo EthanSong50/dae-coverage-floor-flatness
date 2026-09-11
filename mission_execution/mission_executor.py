@@ -14,7 +14,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.executors import SingleThreadedExecutor
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, Twist
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
@@ -27,6 +27,7 @@ try:
     from utils.visualizer import visualize_paths, visualize_planned_wall_proximity, visualize_stall_points
     from utils.boundary_repass import BoundaryRepassController
     from utils.stall_logger import StallWatcher, write_stall_report
+    from utils.mission_logger import MissionLogger
 except ImportError:
     from mission_execution.utils.map_utils import get_map_bounds
     from mission_execution.utils.ros_utils import create_pose_stamped, teleport_gazebo_entity
@@ -34,6 +35,7 @@ except ImportError:
     from mission_execution.utils.visualizer import visualize_paths, visualize_planned_wall_proximity, visualize_stall_points
     from mission_execution.utils.boundary_repass import BoundaryRepassController
     from mission_execution.utils.stall_logger import StallWatcher, write_stall_report
+    from mission_execution.utils.mission_logger import MissionLogger
 
 
 class MissionExecutor(Node):
@@ -131,6 +133,20 @@ class MissionExecutor(Node):
         # 쌓이며, _save_mission_results()에서 이것만 따로 파일에 출력함.
         self._stall_events = []
         self._mission_start_wall_time = None
+
+        # 주기 디버그 로그(mission_execution/utils/mission_logger.py, 기본 3초 간격) 연동용
+        # 상태. execute_mission()의 각 단계 전환마다 _current_context를 갱신하고,
+        # 4개의 blocking 대기 루프(_spin_action/_backup_for_clearance/
+        # _navigate_to_pose_blocking/_navigate_through_poses_blocking)가
+        # _nav_status를 매 폴링마다 갱신함 - MissionLogger는 별도 스레드에서
+        # 이 두 값을 읽기만 함(도입 배경은 mission_logger.py 모듈 docstring 참고).
+        self._current_context = None
+        self._nav_status = {}
+        self._mission_logger = None
+
+        # _direct_cmd_vel_rotate(nav2 behavior_server를 우회하는 제자리 회전
+        # 최종 폴백)용 - 평소엔 발행하지 않고, 그 함수 안에서만 씀.
+        self._cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
 
         # AMCL 초기화 검증 관련 상태
         self.verified_amcl_x = None
@@ -610,6 +626,18 @@ class MissionExecutor(Node):
 
         self._mission_start_wall_time = time.time()
 
+        drive_debug_log_dir = os.path.join(
+            self.workspace_root, self.mission_exec_cfg.get('drive_debug_log_dir', 'analytics/logs'))
+        drive_debug_log_path = os.path.join(
+            drive_debug_log_dir, time.strftime('drive_debug_%Y-%m-%d_%H-%M-%S.csv',
+                                                time.localtime(self._mission_start_wall_time)))
+        self._mission_logger = MissionLogger(
+            self, drive_debug_log_path,
+            interval_sec=self.mission_exec_cfg.get('drive_debug_interval_sec', 3.0),
+            stall_threshold_sec=self.mission_exec_cfg.get('drive_debug_stall_threshold_sec', 9.0),
+        )
+        self._mission_logger.start()
+
         goal_poses = self._prepare_goal_poses()
         sub_segments = self._split_into_straight_subsegments(goal_poses)
         print(f"[*] Total waypoints: {len(goal_poses)}, split into {len(sub_segments)} "
@@ -625,6 +653,9 @@ class MissionExecutor(Node):
 
         first_s, first_e = sub_segments[0]
         if self.final_path[first_s]['header'].get('record_pcd', True):
+            prepass_node_id = self.final_path[first_s]['header'].get('node_id')
+            self._current_context = (f"node {prepass_node_id} prepass" if prepass_node_id is not None
+                                      else "prepass")
             self._boundary_repass.run_start_prepass(goal_poses[first_s:first_e])
 
         for seg_idx, (s, e) in enumerate(sub_segments):
@@ -632,6 +663,16 @@ class MissionExecutor(Node):
             seg_header = self.final_path[s]['header']
             seg_type_prefix = seg_header['task_type'].split('_')[0]
             record_pcd = seg_header.get('record_pcd', True)
+
+            if seg_type_prefix == 'coverage':
+                node_id = seg_header.get('node_id')
+                self._current_context = f"node {node_id} coverage" if node_id is not None \
+                    else "coverage (node id unknown - regenerate path)"
+            else:
+                from_id, to_id = seg_header.get('from_node_id'), seg_header.get('to_node_id')
+                self._current_context = f"transit node {from_id} -> node {to_id}" \
+                    if (from_id is not None or to_id is not None) \
+                    else "transit (node id unknown - regenerate path)"
 
             if seg_idx > 0 and not record_pcd and len(seg_poses) > 1:
                 # mission_planner.py는 매 노드 진입/이탈 transit의 A* 경로를
@@ -689,6 +730,9 @@ class MissionExecutor(Node):
             is_coverage_exit = record_pcd and (is_last_segment or not next_record_pcd)
 
             if is_coverage_exit and self._capture_active:
+                exit_node_id = seg_header.get('node_id')
+                self._current_context = (f"node {exit_node_id} end repass" if exit_node_id is not None
+                                          else "end repass (node id unknown - regenerate path)")
                 self._boundary_repass.run_exit_repass(seg_poses)
 
         if self._capture_active:
@@ -702,6 +746,11 @@ class MissionExecutor(Node):
         if self.sub_amcl_check is not None:
             self.destroy_subscription(self.sub_amcl_check)
             self.sub_amcl_check = None
+
+        self._current_context = "mission ended"
+        if self._mission_logger is not None:
+            self._mission_logger.stop()
+            print(f"[*] Mission debug log saved: {self._mission_logger.log_path}")
 
         if not self.mission_succeeded and not self.navigator.isTaskComplete():
             self.navigator.cancelTask()
@@ -953,23 +1002,29 @@ class MissionExecutor(Node):
         self.navigator.spin(spin_dist=delta_yaw, time_allowance=int(spin_time_allowance))
 
         stall_watcher = StallWatcher(f"{label} [rotate]", stall_threshold_sec=self._stall_threshold_sec())
-        while not self.navigator.isTaskComplete():
-            rclpy.spin_once(self.navigator, timeout_sec=0.01)
-            self.spin_executor.spin_once(timeout_sec=0.0)
-            if self._check_amcl_jump():
-                self.navigator.cancelTask()
-                self._stall_events.extend(stall_watcher.finalize())
-                return False
-            feedback = self.navigator.getFeedback()
-            stall_watcher.update(getattr(feedback, 'angular_distance_traveled', None) if feedback else None)
-            time.sleep(0.05)
-        self._stall_events.extend(stall_watcher.finalize())
+        try:
+            while not self.navigator.isTaskComplete():
+                rclpy.spin_once(self.navigator, timeout_sec=0.01)
+                self.spin_executor.spin_once(timeout_sec=0.0)
+                if self._check_amcl_jump():
+                    self.navigator.cancelTask()
+                    self._stall_events.extend(stall_watcher.finalize())
+                    return False
+                feedback = self.navigator.getFeedback()
+                angular_dist = getattr(feedback, 'angular_distance_traveled', None) if feedback else None
+                stall_watcher.update(angular_dist)
+                self._set_nav_status('Spin', label=label, progress_kind='angular_distance_traveled',
+                                      progress_value=angular_dist)
+                time.sleep(0.05)
+            self._stall_events.extend(stall_watcher.finalize())
 
-        result = self.navigator.getResult()
-        if result != TaskResult.SUCCEEDED:
-            print(f"[!] Warning: Spin action did not succeed (result={result}).")
-            return False
-        return True
+            result = self.navigator.getResult()
+            if result != TaskResult.SUCCEEDED:
+                print(f"[!] Warning: Spin action did not succeed (result={result}).")
+                return False
+            return True
+        finally:
+            self._set_nav_status(None)
 
     def _backup_for_clearance(self, label='rotate'):
         """
@@ -988,18 +1043,79 @@ class MissionExecutor(Node):
         self.navigator.backup(backup_dist=backup_dist, backup_speed=backup_speed,
                                time_allowance=int(backup_time_allowance))
         stall_watcher = StallWatcher(f"{label} [backup]", stall_threshold_sec=self._stall_threshold_sec())
-        while not self.navigator.isTaskComplete():
-            rclpy.spin_once(self.navigator, timeout_sec=0.01)
-            self.spin_executor.spin_once(timeout_sec=0.0)
-            if self._check_amcl_jump():
-                self.navigator.cancelTask()
-                self._stall_events.extend(stall_watcher.finalize())
-                return False
-            feedback = self.navigator.getFeedback()
-            stall_watcher.update(getattr(feedback, 'distance_traveled', None) if feedback else None)
-            time.sleep(0.05)
-        self._stall_events.extend(stall_watcher.finalize())
-        return self.navigator.getResult() == TaskResult.SUCCEEDED
+        try:
+            while not self.navigator.isTaskComplete():
+                rclpy.spin_once(self.navigator, timeout_sec=0.01)
+                self.spin_executor.spin_once(timeout_sec=0.0)
+                if self._check_amcl_jump():
+                    self.navigator.cancelTask()
+                    self._stall_events.extend(stall_watcher.finalize())
+                    return False
+                feedback = self.navigator.getFeedback()
+                dist_traveled = getattr(feedback, 'distance_traveled', None) if feedback else None
+                stall_watcher.update(dist_traveled)
+                self._set_nav_status('BackUp', label=label, progress_kind='distance_traveled',
+                                      progress_value=dist_traveled)
+                time.sleep(0.05)
+            self._stall_events.extend(stall_watcher.finalize())
+            return self.navigator.getResult() == TaskResult.SUCCEEDED
+        finally:
+            self._set_nav_status(None)
+
+    def _direct_cmd_vel_rotate(self, target_yaw, label='rotate'):
+        """
+        Nav2 Spin(behavior_server)이 backup 후 재시도까지 실패했을 때의 최종
+        폴백 - nav2를 아예 거치지 않고 /cmd_vel을 직접 발행해 제자리 회전시킴.
+        costmap 기반 사전 충돌 체크를 하지 않음.
+
+        이게 안전하다고 보는 근거: 여기 도달한 시점엔 이미 nav2 자체 안전장치를
+        두 번(Spin 1차, 후진 후 Spin 2차) 거쳤고, 실측상 이런 지점에서 로봇을
+        손으로 살짝 밀어 위치를 아주 조금만 바꿔도 Spin이 통과하는 걸 여러 번
+        확인함(2026-09-11) - 즉 공간 자체가 막힌 게 아니라 simulate_ahead_time
+        사전 체크가 경계선에서 과민하게 거부하는 것. 그래도 무제한 신뢰하지는
+        않고, AMCL jump 감지와 전체 시간제한(direct_rotate_timeout_sec)만은
+        자체 안전장치로 유지함.
+        """
+        angular_speed = self.mission_exec_cfg.get('direct_rotate_speed_rad_s', 0.3)
+        timeout_sec = self.mission_exec_cfg.get('direct_rotate_timeout_sec', 20.0)
+        tolerance_rad = math.radians(self.mission_exec_cfg.get('min_rotation_deg', 3.0))
+
+        print("  [Rotate] Escalating to direct /cmd_vel rotation (bypassing nav2 behavior_server)...")
+
+        start_time = time.time()
+        success = False
+        try:
+            while time.time() - start_time < timeout_sec:
+                self.spin_executor.spin_once(timeout_sec=0.0)
+                if self._check_amcl_jump():
+                    print("  [Rotate] AMCL jump detected during direct rotation - aborting.")
+                    break
+
+                _, _, current_yaw = self._get_current_pose_from_tf()
+                if current_yaw is None:
+                    break
+
+                remaining = math.atan2(math.sin(target_yaw - current_yaw), math.cos(target_yaw - current_yaw))
+                self._set_nav_status('DirectCmdVelSpin', label=label, progress_kind='remaining_delta_rad',
+                                      progress_value=abs(remaining))
+
+                if abs(remaining) < tolerance_rad:
+                    success = True
+                    break
+
+                twist = Twist()
+                twist.angular.z = math.copysign(angular_speed, remaining)
+                self._cmd_vel_pub.publish(twist)
+                time.sleep(0.05)
+        finally:
+            self._cmd_vel_pub.publish(Twist())  # 정지
+            self._set_nav_status(None)
+
+        if success:
+            print("  [Rotate] Direct /cmd_vel rotation succeeded.")
+        else:
+            print("  [Rotate] Direct /cmd_vel rotation failed (timeout or TF/AMCL issue). Proceeding anyway.")
+        return success
 
     def _rotate_in_place_to(self, target_pose, label='rotate'):
         """
@@ -1012,11 +1128,18 @@ class MissionExecutor(Node):
 
         따라서 "현재 위치 -> target_pose 위치"를 atan2로 직접 계산해서 목표각으로 씀.
 
-        Spin이 실패하면(벽 근접으로 인한 사전 충돌 체크 실패 추정) 한 번 물러났다가
-        재시도함. 물러난 자리는 사방이 트여 있으므로 재시도는 "away 방향"이 아니라
-        바로 최종 목표각으로 한 번에 회전함 - 물러난 지점에서 원래 지점(벽 근처)으로의
-        복귀는 이 함수가 아니라 다음 구간의 직선 주행이 담당하므로, 벽에 근접한 채로
-        다시 회전을 시도할 일은 없음(직선 주행은 실측상 벽 코앞까지도 정상 동작함).
+        3단계 에스컬레이션(2026-09-11, 벽 근접 지점에서 반복적으로 멈춰서는 문제의
+        실측 대응):
+          1) Spin(nav2_msgs/action/Spin) 1차 시도.
+          2) 실패 시 BackUp으로 살짝 물러나 여유를 만든 뒤, 그 자리에서 다시 목표각을
+             계산해 Spin 재시도(물러난 자리는 사방이 트여 있으므로 "away 방향"이 아니라
+             바로 최종 목표각으로 한 번에 회전함 - 물러난 지점에서 원래 지점(벽 근처)
+             으로의 복귀는 이 함수가 아니라 다음 구간의 직선 주행이 담당하므로, 벽에
+             근접한 채로 다시 회전을 시도할 일은 없음. 직선 주행은 실측상 벽 코앞까지도
+             정상 동작함).
+          3) 그래도 실패하면(BackUp 자체도 막힌 경우 포함) _direct_cmd_vel_rotate로
+             nav2를 아예 거치지 않고 /cmd_vel을 직접 발행해 회전시킴 - 이 지점까지 온
+             시점엔 이미 nav2 자체 안전장치를 두 번 거친 뒤이므로 최종 폴백으로 사용함.
         """
         current_x, current_y, current_yaw = self._get_current_pose_from_tf()
         if current_yaw is None:
@@ -1046,8 +1169,8 @@ class MissionExecutor(Node):
         print("  [Rotate] Spin failed (likely collision pre-check near wall) - "
               "backing up for clearance and retrying...")
         if not self._backup_for_clearance(label=label):
-            print("  [Rotate] Backup also failed - giving up on retry.")
-            return False
+            print("  [Rotate] Backup also failed too - escalating to direct /cmd_vel rotation.")
+            return self._direct_cmd_vel_rotate(target_yaw, label=label)
 
         current_x, current_y, current_yaw = self._get_current_pose_from_tf()
         if current_yaw is None:
@@ -1058,10 +1181,27 @@ class MissionExecutor(Node):
         retry_delta_yaw = math.atan2(math.sin(retry_target_yaw - current_yaw), math.cos(retry_target_yaw - current_yaw))
         print(f"  [Rotate] Retrying with clearance: current={math.degrees(current_yaw):.1f}°, "
               f"target={math.degrees(retry_target_yaw):.1f}°, delta={math.degrees(retry_delta_yaw):.1f}°")
-        return self._spin_action(retry_delta_yaw, label=label)
+        if self._spin_action(retry_delta_yaw, label=label):
+            return True
+
+        print("  [Rotate] Spin retry after backup also failed - escalating to direct /cmd_vel rotation.")
+        return self._direct_cmd_vel_rotate(retry_target_yaw, label=label)
 
     def _stall_threshold_sec(self):
         return self.mission_exec_cfg.get('stall_log_threshold_sec', 5.0)
+
+    def _set_nav_status(self, action, label=None, progress_kind=None, progress_value=None, recoveries=None):
+        """MissionLogger(백그라운드 스레드)가 읽을 "지금 어떤 nav2 액션이 떠
+        있고 그 진행 지표가 얼마인지"를 통째로 새 dict로 재할당함(스레드
+        세이프성 근거는 mission_logger.py 모듈 docstring 참고). action=None은
+        "지금 어떤 nav2 액션도 실행 중이 아님(idle)"을 뜻함."""
+        self._nav_status = {
+            'action': action,
+            'label': label,
+            'progress_kind': progress_kind,
+            'progress_value': progress_value,
+            'number_of_recoveries': recoveries,
+        }
 
     # ------------------------------------------------------------------
     # 직선 주행 (nav2_msgs/action/NavigateToPose, coverage run의 끝점으로 1회 전송)
@@ -1072,34 +1212,39 @@ class MissionExecutor(Node):
 
         stall_watcher = StallWatcher(f"{label} [drive]", stall_threshold_sec=self._stall_threshold_sec())
         last_debug_print_time = time.time()
-        while not self.navigator.isTaskComplete():
-            rclpy.spin_once(self.navigator, timeout_sec=0.01)
-            self.spin_executor.spin_once(timeout_sec=0.0)
-            current_time = time.time()
+        try:
+            while not self.navigator.isTaskComplete():
+                rclpy.spin_once(self.navigator, timeout_sec=0.01)
+                self.spin_executor.spin_once(timeout_sec=0.0)
+                current_time = time.time()
 
-            if self._check_amcl_jump():
-                self.navigator.cancelTask()
-                self._stall_events.extend(stall_watcher.finalize())
+                if self._check_amcl_jump():
+                    self.navigator.cancelTask()
+                    self._stall_events.extend(stall_watcher.finalize())
+                    return False
+
+                feedback = self.navigator.getFeedback()
+                remaining = getattr(feedback, 'distance_remaining', None) if feedback else None
+                recoveries = getattr(feedback, 'number_of_recoveries', None) if feedback else None
+                stall_watcher.update(remaining, recoveries=recoveries)
+                self._set_nav_status('NavigateToPose', label=label, progress_kind='distance_remaining',
+                                      progress_value=remaining, recoveries=recoveries)
+
+                if current_time - last_debug_print_time >= 1.0:
+                    if remaining is not None:
+                        print(f"  ├─ Driving swath... distance remaining: {remaining:.2f}m")
+                    last_debug_print_time = current_time
+
+                time.sleep(0.05)
+            self._stall_events.extend(stall_watcher.finalize())
+
+            result = self.navigator.getResult()
+            if result != TaskResult.SUCCEEDED:
+                print(f"[-] Swath drive ended without SUCCEEDED (result={result}).")
                 return False
-
-            feedback = self.navigator.getFeedback()
-            remaining = getattr(feedback, 'distance_remaining', None) if feedback else None
-            recoveries = getattr(feedback, 'number_of_recoveries', None) if feedback else None
-            stall_watcher.update(remaining, recoveries=recoveries)
-
-            if current_time - last_debug_print_time >= 1.0:
-                if remaining is not None:
-                    print(f"  ├─ Driving swath... distance remaining: {remaining:.2f}m")
-                last_debug_print_time = current_time
-
-            time.sleep(0.05)
-        self._stall_events.extend(stall_watcher.finalize())
-
-        result = self.navigator.getResult()
-        if result != TaskResult.SUCCEEDED:
-            print(f"[-] Swath drive ended without SUCCEEDED (result={result}).")
-            return False
-        return True
+            return True
+        finally:
+            self._set_nav_status(None)
 
     def _set_angular_dist_threshold(self, mode):
         """
@@ -1168,36 +1313,41 @@ class MissionExecutor(Node):
 
         stall_watcher = StallWatcher(f"{label} [drive]", stall_threshold_sec=self._stall_threshold_sec())
         last_debug_print_time = time.time()
-        while not self.navigator.isTaskComplete():
-            rclpy.spin_once(self.navigator, timeout_sec=0.01)
-            self.spin_executor.spin_once(timeout_sec=0.0)
-            current_time = time.time()
+        try:
+            while not self.navigator.isTaskComplete():
+                rclpy.spin_once(self.navigator, timeout_sec=0.01)
+                self.spin_executor.spin_once(timeout_sec=0.0)
+                current_time = time.time()
 
-            if self._check_amcl_jump():
-                self.navigator.cancelTask()
-                self._stall_events.extend(stall_watcher.finalize())
+                if self._check_amcl_jump():
+                    self.navigator.cancelTask()
+                    self._stall_events.extend(stall_watcher.finalize())
+                    return False
+
+                feedback = self.navigator.getFeedback()
+                remaining = getattr(feedback, 'distance_remaining', None) if feedback else None
+                n_left = getattr(feedback, 'number_of_poses_remaining', None) if feedback else None
+                recoveries = getattr(feedback, 'number_of_recoveries', None) if feedback else None
+                stall_watcher.update(remaining, recoveries=recoveries)
+                self._set_nav_status('NavigateThroughPoses', label=label, progress_kind='distance_remaining',
+                                      progress_value=remaining, recoveries=recoveries)
+
+                if current_time - last_debug_print_time >= 1.0:
+                    # if remaining is not None:
+                    #     print(f"  ├─ Driving through {len(seg_poses)} points... "
+                    #         f"distance remaining: {remaining:.2f}m, poses left: {n_left}")
+                    last_debug_print_time = current_time
+
+                time.sleep(0.05)
+            self._stall_events.extend(stall_watcher.finalize())
+
+            result = self.navigator.getResult()
+            if result != TaskResult.SUCCEEDED:
+                print(f"[-] Through-poses drive ended without SUCCEEDED (result={result}).")
                 return False
-
-            feedback = self.navigator.getFeedback()
-            remaining = getattr(feedback, 'distance_remaining', None) if feedback else None
-            n_left = getattr(feedback, 'number_of_poses_remaining', None) if feedback else None
-            recoveries = getattr(feedback, 'number_of_recoveries', None) if feedback else None
-            stall_watcher.update(remaining, recoveries=recoveries)
-
-            if current_time - last_debug_print_time >= 1.0:
-                # if remaining is not None:
-                #     print(f"  ├─ Driving through {len(seg_poses)} points... "
-                #         f"distance remaining: {remaining:.2f}m, poses left: {n_left}")
-                last_debug_print_time = current_time
-
-            time.sleep(0.05)
-        self._stall_events.extend(stall_watcher.finalize())
-
-        result = self.navigator.getResult()
-        if result != TaskResult.SUCCEEDED:
-            print(f"[-] Through-poses drive ended without SUCCEEDED (result={result}).")
-            return False
-        return True
+            return True
+        finally:
+            self._set_nav_status(None)
 
     # ------------------------------------------------------------------
     # 캡처 시퀀스 보조 유틸 (settle 대기, surface_profiler 서비스 호출)
