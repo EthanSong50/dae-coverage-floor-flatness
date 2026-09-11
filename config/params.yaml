@@ -10,7 +10,7 @@ global:
 environment_modeling:
   # [Global Settings]
   target_resolution: 0.02 # 맵의 해상도 (meter/pixel). 값이 작을수록 정밀하지만 계산량이 증가.
-  dae_file: "Apt.dae" # 분석 대상 3D 모델 파일명. (INU_9_211.dae, Apt.dae) 파일명 바꾸고 난 이후, coverage_flatness_env.world에서도 바꿀 것.
+  dae_file: "INU_9_211.dae" # 분석 대상 3D 모델 파일명. (INU_9_211.dae, Apt.dae) 파일명 바꾸고 난 이후, coverage_flatness_env.world에서도 바꿀 것.
 
   # [Strict Directory Mappings]
   input_dir: "assets"
@@ -47,7 +47,9 @@ environment_modeling:
 mission_planner:
   lidar_vertical_fov_deg: 15.0 # 수직 FOV 절반
   lidar_mount_height: 0.338 # (m) base_footprint(지면) 기준 velodyne_link 높이. 실측하여 정확한 값을 기입바람.
-  path_safety_margin: 0.20 # robot_width + path_safety_margin 만큼 경로가 벽에서 떨어져서 생성되도록 함. 
+  path_safety_margin: 0.25 # robot_width + path_safety_margin 만큼 경로가 벽에서 떨어져서 생성되도록 함.
+  # (2026-09-11) 0.20 -> 0.25로 상향: local_costmap의 inflation_radius(0.25m, tb3_waffle_nav2_params.yaml)보다
+  # 여유가 부족하면, 벽 근접 지점에서 제자리 회전(Spin) 시 사전 충돌 체크에 걸려 실패하는 문제가 실측에서 확인됨.
 
   lidar_range: 3.0 # 라이다 측정 최대 범위 (m)
   overlap: 0.2 # 이동하면서 측정 시 오버랩할 비율

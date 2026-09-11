@@ -947,6 +947,60 @@ class MissionExecutor(Node):
         return x, y, yaw
 
 
+    def _spin_action(self, delta_yaw, label='rotate'):
+        """delta_yaw(rad)만큼 제자리 회전(nav2_msgs/action/Spin)을 1회 시도하고 성공 여부를 반환함."""
+        spin_time_allowance = self.mission_exec_cfg.get('spin_time_allowance_sec', 15.0)
+        self.navigator.spin(spin_dist=delta_yaw, time_allowance=int(spin_time_allowance))
+
+        stall_watcher = StallWatcher(f"{label} [rotate]", stall_threshold_sec=self._stall_threshold_sec())
+        while not self.navigator.isTaskComplete():
+            rclpy.spin_once(self.navigator, timeout_sec=0.01)
+            self.spin_executor.spin_once(timeout_sec=0.0)
+            if self._check_amcl_jump():
+                self.navigator.cancelTask()
+                self._stall_events.extend(stall_watcher.finalize())
+                return False
+            feedback = self.navigator.getFeedback()
+            stall_watcher.update(getattr(feedback, 'angular_distance_traveled', None) if feedback else None)
+            time.sleep(0.05)
+        self._stall_events.extend(stall_watcher.finalize())
+
+        result = self.navigator.getResult()
+        if result != TaskResult.SUCCEEDED:
+            print(f"[!] Warning: Spin action did not succeed (result={result}).")
+            return False
+        return True
+
+    def _backup_for_clearance(self, label='rotate'):
+        """
+        Spin이 실패했을 때 벽에서 살짝 물러나 여유를 만듦(nav2_msgs/action/BackUp).
+
+        boundary_repass 지점처럼 벽에 바짝 붙은 자리에서는 Spin의 사전 충돌
+        체크(simulate_ahead_time, tb3_waffle_nav2_params.yaml)가 제자리에
+        멈춰선 상태만으로 걸려 즉시 실패하는 경우가 실측에서 확인됨(2026-09-11).
+        로봇을 손으로 살짝 밀어 위치를 아주 조금만 바꿔줘도 통과하는 걸 보아
+        판정이 경계선상에서 발생하는 것으로 판단, 뒤로 물러나 같은 효과를 냄.
+        """
+        backup_dist = self.mission_exec_cfg.get('spin_retry_backup_dist_m', 0.15)
+        backup_speed = self.mission_exec_cfg.get('spin_retry_backup_speed_mps', 0.05)
+        backup_time_allowance = self.mission_exec_cfg.get('backup_time_allowance_sec', 10.0)
+
+        self.navigator.backup(backup_dist=backup_dist, backup_speed=backup_speed,
+                               time_allowance=int(backup_time_allowance))
+        stall_watcher = StallWatcher(f"{label} [backup]", stall_threshold_sec=self._stall_threshold_sec())
+        while not self.navigator.isTaskComplete():
+            rclpy.spin_once(self.navigator, timeout_sec=0.01)
+            self.spin_executor.spin_once(timeout_sec=0.0)
+            if self._check_amcl_jump():
+                self.navigator.cancelTask()
+                self._stall_events.extend(stall_watcher.finalize())
+                return False
+            feedback = self.navigator.getFeedback()
+            stall_watcher.update(getattr(feedback, 'distance_traveled', None) if feedback else None)
+            time.sleep(0.05)
+        self._stall_events.extend(stall_watcher.finalize())
+        return self.navigator.getResult() == TaskResult.SUCCEEDED
+
     def _rotate_in_place_to(self, target_pose, label='rotate'):
         """
         현재 위치에서 target_pose(위치)를 향하도록 회전함.
@@ -957,6 +1011,12 @@ class MissionExecutor(Node):
         향하면 코너 직전 지점에서 코너를 건너뛰고 그 다음 방향을 미리 보게 됨.
 
         따라서 "현재 위치 -> target_pose 위치"를 atan2로 직접 계산해서 목표각으로 씀.
+
+        Spin이 실패하면(벽 근접으로 인한 사전 충돌 체크 실패 추정) 한 번 물러났다가
+        재시도함. 물러난 자리는 사방이 트여 있으므로 재시도는 "away 방향"이 아니라
+        바로 최종 목표각으로 한 번에 회전함 - 물러난 지점에서 원래 지점(벽 근처)으로의
+        복귀는 이 함수가 아니라 다음 구간의 직선 주행이 담당하므로, 벽에 근접한 채로
+        다시 회전을 시도할 일은 없음(직선 주행은 실측상 벽 코앞까지도 정상 동작함).
         """
         current_x, current_y, current_yaw = self._get_current_pose_from_tf()
         if current_yaw is None:
@@ -980,27 +1040,25 @@ class MissionExecutor(Node):
         print(f"  [Rotate] current={math.degrees(current_yaw):.1f}°, "
             f"target={math.degrees(target_yaw):.1f}° (toward next goal), delta={math.degrees(delta_yaw):.1f}°")
 
-        spin_time_allowance = self.mission_exec_cfg.get('spin_time_allowance_sec', 15.0)
-        self.navigator.spin(spin_dist=delta_yaw, time_allowance=int(spin_time_allowance))
+        if self._spin_action(delta_yaw, label=label):
+            return True
 
-        stall_watcher = StallWatcher(f"{label} [rotate]", stall_threshold_sec=self._stall_threshold_sec())
-        while not self.navigator.isTaskComplete():
-            rclpy.spin_once(self.navigator, timeout_sec=0.01)
-            self.spin_executor.spin_once(timeout_sec=0.0)
-            if self._check_amcl_jump():
-                self.navigator.cancelTask()
-                self._stall_events.extend(stall_watcher.finalize())
-                return False
-            feedback = self.navigator.getFeedback()
-            stall_watcher.update(getattr(feedback, 'angular_distance_traveled', None) if feedback else None)
-            time.sleep(0.05)
-        self._stall_events.extend(stall_watcher.finalize())
-
-        result = self.navigator.getResult()
-        if result != TaskResult.SUCCEEDED:
-            print(f"[!] Warning: Spin action did not succeed (result={result}).")
+        print("  [Rotate] Spin failed (likely collision pre-check near wall) - "
+              "backing up for clearance and retrying...")
+        if not self._backup_for_clearance(label=label):
+            print("  [Rotate] Backup also failed - giving up on retry.")
             return False
-        return True
+
+        current_x, current_y, current_yaw = self._get_current_pose_from_tf()
+        if current_yaw is None:
+            return False
+        dx = target_pose.pose.position.x - current_x
+        dy = target_pose.pose.position.y - current_y
+        retry_target_yaw = math.atan2(dy, dx)
+        retry_delta_yaw = math.atan2(math.sin(retry_target_yaw - current_yaw), math.cos(retry_target_yaw - current_yaw))
+        print(f"  [Rotate] Retrying with clearance: current={math.degrees(current_yaw):.1f}°, "
+              f"target={math.degrees(retry_target_yaw):.1f}°, delta={math.degrees(retry_delta_yaw):.1f}°")
+        return self._spin_action(retry_delta_yaw, label=label)
 
     def _stall_threshold_sec(self):
         return self.mission_exec_cfg.get('stall_log_threshold_sec', 5.0)
